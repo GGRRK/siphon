@@ -1,5 +1,6 @@
 """The app's remembered choices: download format and folder, player state, library sort, last page, appearance,
-whether Siphon and its download engine update themselves, and the equalizer.
+whether closing the window leaves Siphon in the tray, whether Siphon and its download engine update themselves,
+and the equalizer.
 
 Stored as JSON in $XDG_CONFIG_HOME/siphon/settings.json (~/.config by
 default; %APPDATA%\\Siphon on Windows). A missing or damaged file silently falls back to the defaults,
@@ -34,6 +35,8 @@ class Settings:
     page: str = "download"
     style: str = "system"
     accent: str = "system"
+    close_to_tray: bool = True  # closing the window hides it; Siphon keeps playing and downloading in the tray
+    told_about_tray: bool = False  # the first close to the tray says so, once
     auto_update: bool = True  # Siphon checks GitHub at every start and gets a new release ready
     auto_engine: bool = True  # the same for yt-dlp, from PyPI
     # in this file rather than one of its own: a slider drag saves many times a second, and the app already
@@ -80,6 +83,8 @@ def load(defaults: Settings, formats: tuple[str, ...], path: Path | None = None)
         page=choice("page", PAGES),
         style=choice("style", STYLES),
         accent=choice("accent", ACCENTS),
+        close_to_tray=flag("close_to_tray"),
+        told_about_tray=flag("told_about_tray"),
         auto_update=flag("auto_update"),
         auto_engine=flag("auto_engine"),
         equalizer=eq.from_json(data.get("equalizer"), defaults.equalizer),
