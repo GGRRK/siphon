@@ -102,7 +102,10 @@ $installed = Join-Path $env:LOCALAPPDATA 'Programs\Siphon'
 $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Siphon.lnk'
 
 Check 'versions' {
-    Expect (Run $cli @('--version')) '(?m)^Siphon \d+\.\d+\.\d+\s+yt-dlp 20\d\d\.' 'Siphon and yt-dlp versions'
+    $versions = Run $cli @('--version')
+    Expect $versions '(?m)^Siphon \d+\.\d+\.\d+\s+yt-dlp 20\d\d\.' 'Siphon and yt-dlp versions'
+    # read from yt-dlp's version module without importing yt-dlp (siphon/core.py); the selftest imports it
+    $script:ytdlpRead = [regex]::Match($versions, 'yt-dlp (\S+)').Groups[1].Value
 }
 
 Check 'selftest --net' {
@@ -114,6 +117,9 @@ Check 'selftest --net' {
     Expect $report 'ok\s+download\s+.*opus, 21\d\.\d s' 'a real YouTube download as Opus'
     Expect $report 'ok\s+challenge\s+.*solved by quickjs' 'QuickJS solved the YouTube challenge'
     Expect $report 'all checks passed' 'every selftest check'
+    $imported = [regex]::Match($report, 'engine\s+yt-dlp (\S+) from').Groups[1].Value
+    if ($imported -ne $script:ytdlpRead) { throw "--version read yt-dlp $script:ytdlpRead, yt-dlp says $imported" }
+    Write-Host "  ok: the yt-dlp version read without importing it is the imported one's"
 }
 
 Check 'update check against GitHub' {
@@ -145,7 +151,10 @@ if ($Engine) {
         $engineDir = Join-Path $env:LOCALAPPDATA 'Siphon\engine'
         Copy-Item -Recurse -Force $Engine $engineDir
         try {
-            Expect (Run $cli @('selftest')) 'engine\s+yt-dlp \S+ from .*engine\\yt_dlp-[^\\]+\.whl\\yt_dlp' 'yt-dlp imported from the wheel'
+            $report = Run $cli @('selftest')
+            Expect $report 'engine\s+yt-dlp \S+ from .*engine\\yt_dlp-[^\\]+\.whl\\yt_dlp' 'yt-dlp imported from the wheel'
+            $imported = [regex]::Match($report, 'engine\s+yt-dlp (\S+) from').Groups[1].Value
+            Expect (Run $cli @('--version')) "yt-dlp $([regex]::Escape($imported))\s*$" 'the version read from the wheel without importing yt-dlp'
         } finally { Remove-Item -Recurse -Force $engineDir }
     }
 }
