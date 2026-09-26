@@ -553,6 +553,23 @@ def test_bin_siphon_installs_the_fetched_release_before_python_starts(github, tm
     assert head(clone) == new and not marker(clone).exists()
 
 
+@pytest.mark.linux
+def test_restart_starts_bin_siphon_once_this_siphon_has_ended(tmp_path, monkeypatch):
+    (tmp_path / "bin").mkdir()
+    started = tmp_path / "started"
+    (tmp_path / "bin" / "siphon").write_text(f'#!/bin/sh\ndate +%s.%N > "{started}"\n')
+    (tmp_path / "bin" / "siphon").chmod(0o755)
+    monkeypatch.setattr(updater, "checkout", lambda: tmp_path)
+    begun = time.time()
+    siphon_now = subprocess.Popen(["sleep", "1"])  # the Siphon that is quitting
+    helper = subprocess.Popen(updater.relaunch_command(siphon_now.pid))
+    try:
+        assert helper.wait(timeout=10) == 0  # sleep's zombie, which nobody reaps until the end, counts as ended
+        assert float(started.read_text()) - begun >= 0.95
+    finally:
+        siphon_now.wait()
+
+
 # ---------------------------------------------------------------- the state the window and the settings show
 
 

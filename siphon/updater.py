@@ -307,9 +307,10 @@ def hold_checkout() -> None:
 
 def relaunch_command(pid: int) -> list[str]:
     """Start Siphon again through bin/siphon, which installs the update, once process pid has ended: a
-    Siphon still running would take the new start over (GApplication's single instance)."""
-    return ["sh", "-c", 'while kill -0 "$1" 2>/dev/null; do sleep 0.1; done; exec "$2"', "sh", str(pid),
-            str(checkout() / "bin" / "siphon")]
+    Siphon still running would take the new start over (GApplication's single instance). An ended process
+    its parent has not reaped yet (a zombie, state Z) counts as ended."""
+    wait = 'while kill -0 "$1" 2>/dev/null && ! ps -o stat= -p "$1" | grep -q "^Z"; do sleep 0.1; done'
+    return ["sh", "-c", f'{wait}; exec "$2"', "sh", str(pid), str(checkout() / "bin" / "siphon")]
 
 
 def relaunch() -> None:
