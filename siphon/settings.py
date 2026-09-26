@@ -1,4 +1,4 @@
-"""The app's remembered choices: download format and folder, player state, library sort, last page.
+"""The app's remembered choices: download format and folder, player state, library sort, last page, appearance.
 
 Stored as JSON in $XDG_CONFIG_HOME/siphon/settings.json (~/.config by
 default; %APPDATA%\\Siphon on Windows). A missing or damaged file silently falls back to the defaults,
@@ -17,6 +17,9 @@ from . import paths
 REPEAT_MODES = ("off", "all", "one")
 SORTS = ("added", "title", "artist")
 PAGES = ("download", "library", "playlists")
+STYLES = ("system", "light", "dark")
+# libadwaita's named accent colours (1.6+), each a --accent-<name> CSS variable; "system" keeps the OS's.
+ACCENTS = ("system", "blue", "teal", "green", "yellow", "orange", "red", "pink", "purple", "slate")
 
 
 @dataclass
@@ -28,6 +31,8 @@ class Settings:
     repeat: str = "off"
     sort: str = "added"
     page: str = "download"
+    style: str = "system"
+    accent: str = "system"
 
 
 def config_path() -> Path:
@@ -64,6 +69,8 @@ def load(defaults: Settings, formats: tuple[str, ...], path: Path | None = None)
         repeat=choice("repeat", REPEAT_MODES),
         sort=choice("sort", SORTS),
         page=choice("page", PAGES),
+        style=choice("style", STYLES),
+        accent=choice("accent", ACCENTS),
     )
 
 

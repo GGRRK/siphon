@@ -9,6 +9,7 @@ from typing import Any
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
 from .. import settings
+from .appearance import settings_button
 from .art import CoverArt
 from .download_page import DownloadPage, is_dismissal
 from .library_page import LibraryPage
@@ -106,6 +107,8 @@ class SiphonWindow(Adw.ApplicationWindow):
         menu.append_section(None, about)
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu, primary=True,
                                        tooltip_text="Main Menu"))
+        self._settings = settings_button()
+        header.pack_end(self._settings)  # pack_end runs right to left: the cog sits left of the main menu
         return header
 
     def _install_actions(self) -> None:
@@ -113,6 +116,7 @@ class SiphonWindow(Adw.ApplicationWindow):
                               ("clear-finished", lambda *_: self.downloads.clear_finished()),
                               ("focus-entry", self._on_focus_entry),
                               ("search", self._on_search),
+                              ("settings", lambda *_: self._settings.popup()),
                               ("refresh-library", lambda *_: self.music.rescan())):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)

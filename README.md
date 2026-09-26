@@ -45,6 +45,7 @@ The Windows build is made by `.github/workflows/windows.yml` on GitHub Actions: 
 
 - `siphon` opens the window (or "Siphon" in the app launcher). Paste a link, press Enter. A link on the clipboard is offered when the window gets focus; dropping a link on the window queues it too. Two downloads run at once, the rest wait.
 - A playlist link (Spotify, YouTube, YouTube Music, SoundCloud…) becomes a playlist of the same name, with the playlist's picture, as soon as it is read; each song joins it as it finishes, in the playlist's order. Pasting the link again (in any form: `spotify:` URI, `?si=`, music.youtube.com) adds only what is new to the same playlist.
+- The cog at the top right (Ctrl+,) picks the style (System, Light or Dark) and the accent colour (System or one of GNOME's nine); both are remembered, and System follows the desktop, Windows included.
 - `siphon URL...` queues links in the running window (or opens it).
 - `siphon get URL... [-f mp3|m4a|opus|flac|best] [-o DIR]` downloads in the terminal; a playlist link also writes its playlist into `DIR/Playlists`, the same way.
 - `siphon selftest [--net]` checks ffmpeg, ffprobe, the JavaScript runtime and libmpv, then makes, tags, scans, lists and silently plays a 2 s tone (`--net` also downloads a YouTube music video and has the JavaScript runtime solve its challenge); exit status 0 when everything works. `siphon --version` prints Siphon's and yt-dlp's versions.

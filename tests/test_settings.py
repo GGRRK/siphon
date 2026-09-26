@@ -70,7 +70,7 @@ def test_save_uses_xdg_config_home(monkeypatch, tmp_path):
     settings.save(Settings("m4a", tmp_path / "x"))
     assert json.loads((tmp_path / "siphon" / "settings.json").read_text()) == {
         "format": "m4a", "folder": str(tmp_path / "x"), "volume": 0.8, "shuffle": False,
-        "repeat": "off", "sort": "added", "page": "download"}
+        "repeat": "off", "sort": "added", "page": "download", "style": "system", "accent": "system"}
 
 
 def test_failed_write_keeps_old_file_and_cleans_up(monkeypatch, tmp_path, defaults):
@@ -93,11 +93,13 @@ def test_file_from_before_the_player_loads_with_new_defaults(tmp_path, defaults)
     loaded = settings.load(defaults, FORMATS, path)
     assert loaded == Settings("opus", Path("/srv/audio"))
     assert (loaded.volume, loaded.shuffle, loaded.repeat, loaded.sort, loaded.page) == (0.8, False, "off", "added", "download")
+    assert (loaded.style, loaded.accent) == ("system", "system")
 
 
 def test_player_and_view_state_round_trip(tmp_path, defaults):
     path = tmp_path / "settings.json"
-    chosen = Settings("mp3", tmp_path, volume=0.35, shuffle=True, repeat="one", sort="artist", page="playlists")
+    chosen = Settings("mp3", tmp_path, volume=0.35, shuffle=True, repeat="one", sort="artist", page="playlists",
+                      style="dark", accent="purple")
     settings.save(chosen, path)
     assert settings.load(defaults, FORMATS, path) == chosen
 
@@ -108,6 +110,8 @@ def test_player_and_view_state_round_trip(tmp_path, defaults):
     ("repeat", "twice"), ("repeat", True),
     ("sort", "genre"), ("sort", 3),
     ("page", "settings"), ("page", None),
+    ("style", "Dark"), ("style", "auto"), ("style", 1), ("style", None), ("style", ["dark"]),
+    ("accent", "Purple"), ("accent", "#9141ac"), ("accent", "magenta"), ("accent", 0), ("accent", False),
 ])
 def test_bad_new_values_fall_back_alone(tmp_path, defaults, key, value):
     path = tmp_path / "settings.json"
@@ -128,3 +132,12 @@ def test_non_finite_volume_falls_back(tmp_path, defaults):
     path = tmp_path / "settings.json"
     path.write_text('{"volume": NaN}')  # Python's json reads and writes NaN
     assert settings.load(defaults, FORMATS, path).volume == defaults.volume
+
+
+@pytest.mark.parametrize("style", settings.STYLES)
+@pytest.mark.parametrize("accent", settings.ACCENTS)
+def test_every_style_and_accent_round_trips(tmp_path, defaults, style, accent):
+    path = tmp_path / "settings.json"
+    settings.save(Settings("opus", tmp_path, style=style, accent=accent), path)
+    loaded = settings.load(defaults, FORMATS, path)
+    assert (loaded.style, loaded.accent) == (style, accent)

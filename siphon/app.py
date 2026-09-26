@@ -8,7 +8,8 @@ from pathlib import Path
 from types import ModuleType
 
 from . import __version__, paths, settings
-from .ui.downloader import unexpected  # importing siphon.ui first pins GTK 4 and libadwaita 1
+from .ui.appearance import Appearance  # importing siphon.ui first pins GTK 4 and libadwaita 1
+from .ui.downloader import unexpected
 from .ui.music import Music
 from .ui.window import SiphonWindow
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
@@ -76,6 +77,7 @@ class SiphonApp(Adw.Application):
         self.set_accels_for_action("win.focus-entry", ["<Control>l"])
         self.set_accels_for_action("win.search", ["<Control>f"])
         self.set_accels_for_action("win.refresh-library", ["F5"])
+        self.set_accels_for_action("win.settings", ["<Control>comma"])
         css = Gtk.CssProvider()
         css.load_from_path(str(_STYLE))
         Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), css,
@@ -83,6 +85,15 @@ class SiphonApp(Adw.Application):
 
         self.prefs = settings.load(settings.Settings(self.core.FORMATS[0], self.core.default_outdir()),
                                    self.core.FORMATS)
+        # Before any window exists, so a forced style never flashes the system's first.
+        self.appearance = Appearance(Gdk.Display.get_default())
+        self.appearance.set_style(self.prefs.style)
+        self.appearance.set_accent(self.prefs.accent)
+        for name in ("style", "accent"):
+            action = Gio.SimpleAction.new_stateful(name, GLib.VariantType.new("s"),
+                                                   GLib.Variant.new_string(getattr(self.prefs, name)))
+            action.connect("change-state", self._on_appearance_changed)
+            self.add_action(action)
         library_module, playlists_module, covers_module = load_music()
         self.player = load_player()()
         self.player.set_volume(self.prefs.volume)
@@ -141,6 +152,17 @@ class SiphonApp(Adw.Application):
             if self._window is not None:
                 self._window.toast(f"Could not save your settings: {exc.strerror}.")
         return GLib.SOURCE_REMOVE
+
+    def _on_appearance_changed(self, action: Gio.SimpleAction, value: GLib.Variant) -> None:
+        name, choice = action.get_name(), value.get_string()
+        allowed, apply = ((settings.STYLES, self.appearance.set_style) if name == "style"
+                          else (settings.ACCENTS, self.appearance.set_accent))
+        if choice not in allowed:
+            return
+        action.set_state(value)
+        setattr(self.prefs, name, choice)
+        apply(choice)
+        self.save_settings()
 
     def _on_player_changed(self, player) -> None:
         state = (player.volume, player.shuffle, player.repeat)

@@ -1,4 +1,5 @@
-/* Only shapes and emphasis: every colour comes from the theme, so a recoloured GTK theme recolours Siphon. */
+/* Only shapes and emphasis: every colour comes from the theme, so a recoloured GTK theme recolours Siphon.
+   The one exception is the pictures of light and dark in the settings popover, at the end. */
 
 .cover {
   border-radius: 6px;
@@ -37,3 +38,97 @@
   min-width: 42px;
   min-height: 42px;
 }
+
+/* The settings popover's round choices, drawn like GNOME Text Editor's style switcher. The style swatches
+   picture light and dark, so they alone keep fixed colours: libadwaita's light and dark window backgrounds. */
+
+.appearance {
+  margin: 6px;
+}
+
+.appearance .swatch {
+  padding: 0;
+  border-spacing: 0;
+  border-radius: 9999px;
+}
+
+.appearance .swatch > check,
+.appearance .swatch > radio {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  -gtk-icon-source: none;
+}
+
+.appearance .swatch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-color) 50%, transparent);
+  outline-offset: 2px;
+}
+
+.appearance .check-mark {
+  opacity: 0;
+}
+
+.appearance .swatch:checked .check-mark {
+  opacity: 1;
+}
+
+.appearance .styles .swatch {
+  min-width: 44px;
+  min-height: 44px;
+  box-shadow: inset 0 0 0 1px alpha(currentColor, 0.15);
+}
+
+.appearance .styles .swatch:checked {
+  box-shadow: inset 0 0 0 2px var(--accent-bg-color);
+}
+
+.appearance .styles .system {
+  background-image: linear-gradient(to bottom right, #fafafb 49.99%, #222226 50.01%);
+}
+
+.appearance .styles .light {
+  background-color: #fafafb;
+}
+
+.appearance .styles .dark {
+  background-color: #222226;
+}
+
+.appearance .styles .check-mark {
+  padding: 2px;
+  border-radius: 9999px;
+  background-color: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+  -gtk-icon-size: 12px;
+}
+
+.appearance .accents .swatch {
+  min-width: 28px;
+  min-height: 28px;
+}
+
+.appearance .accents .check-mark {
+  color: white;
+  -gtk-icon-shadow: 0 1px 2px rgb(0 0 0 / 40%);
+}
+
+.appearance .accents .system {
+  background-image: conic-gradient(var(--accent-blue), var(--accent-teal), var(--accent-green), var(--accent-yellow),
+                                   var(--accent-orange), var(--accent-red), var(--accent-pink), var(--accent-purple),
+                                   var(--accent-blue));
+}
+
+.appearance .accents .blue { background-color: var(--accent-blue); }
+.appearance .accents .teal { background-color: var(--accent-teal); }
+.appearance .accents .green { background-color: var(--accent-green); }
+.appearance .accents .yellow { background-color: var(--accent-yellow); }
+.appearance .accents .orange { background-color: var(--accent-orange); }
+.appearance .accents .red { background-color: var(--accent-red); }
+.appearance .accents .pink { background-color: var(--accent-pink); }
+.appearance .accents .purple { background-color: var(--accent-purple); }
+.appearance .accents .slate { background-color: var(--accent-slate); }
