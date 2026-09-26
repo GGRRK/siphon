@@ -37,6 +37,7 @@ class SiphonWindow(Adw.ApplicationWindow):
         self._settings: SettingsDialog | None = None
         self._settings_page = "appearance"  # the Settings dialog opens where it was last closed
         art = CoverArt(music.cover_file)
+        art.rest_with(self)
 
         self._toasts = Adw.ToastOverlay()
         self._stack = Adw.ViewStack(vexpand=True)

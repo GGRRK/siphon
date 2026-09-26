@@ -1,7 +1,8 @@
-"""The now-playing bar in a real window: hidden, it skips the position's updates; shown again, it catches up at once.
+"""A hidden window (closed to the background, say) rests: the now-playing bar skips the position's updates and
+catches up once shown, and the cover cache is let go.
 
-GTK needs a display, so the bar runs in a child process: on Linux against a private gtk4-broadwayd, with no session
-bus (nothing reaches the desktop), on Windows in the session's own desktop."""
+GTK needs a display, so each check runs in a child process: on Linux against a private gtk4-broadwayd, with no
+session bus (nothing reaches the desktop), on Windows in the session's own desktop."""
 
 import json
 import os
@@ -94,3 +95,51 @@ def test_a_hidden_bar_skips_position_updates_and_catches_up_when_shown(display):
     assert seen["playing"] == ["0:10", 10.0]
     assert seen["while hidden"] == ["0:10", 10.0, []]  # no label or bar change at all
     assert seen["caught up"] == ["0:42", 42.0]
+
+
+_COVERS = """
+import json, sys, time
+sys.path.insert(0, sys.argv[1])
+from pathlib import Path
+from siphon.ui.art import Cover, CoverArt
+from gi.repository import GdkPixbuf, GLib, Gtk
+
+def run_until(condition):
+    end = time.monotonic() + 10
+    while not condition() and time.monotonic() < end:
+        GLib.MainContext.default().iteration(False) or time.sleep(0.01)
+    return condition()
+
+files = []
+for n in range(3):
+    pixbuf = GdkPixbuf.Pixbuf.new(GdkPixbuf.Colorspace.RGB, False, 8, 64, 64)
+    pixbuf.fill(0x204080ff + n)
+    files.append(Path(sys.argv[2]) / f"{n}.png")
+    pixbuf.savev(str(files[-1]), "png", [], [])
+art = CoverArt(lambda path: path)
+cover = Cover(art, 40)
+window = Gtk.Window(child=cover)
+art.rest_with(window)
+window.present()
+seen = {"shown": run_until(cover.get_mapped)}
+cover.show(None, files[0])
+for file in files[1:]:
+    art.load(file, 40, lambda texture: None, mtime=1)
+seen["cached"] = run_until(lambda: len(art._cache) == 3) and cover._image.get_paintable() is not None
+window.set_visible(False)
+seen["hidden"] = run_until(lambda: not cover.get_mapped())
+seen["cached while hidden"] = len(art._cache)
+window.present()
+seen["shown again"] = run_until(cover.get_mapped)
+seen["still showing"] = cover._image.get_paintable() is not None and not cover.has_css_class("placeholder")
+print(json.dumps(seen))
+"""
+
+
+def test_a_hidden_window_lets_the_cover_cache_go_but_keeps_the_covers_on_screen(display, tmp_path):
+    done = subprocess.run([sys.executable, "-c", _COVERS, str(ROOT), str(tmp_path)], env=display, capture_output=True,
+                          text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    seen = json.loads(done.stdout.splitlines()[-1])
+    assert seen == {"shown": True, "cached": True, "hidden": True, "cached while hidden": 0, "shown again": True,
+                    "still showing": True}
