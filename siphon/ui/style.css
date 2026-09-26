@@ -1,5 +1,5 @@
 /* Only shapes and emphasis: every colour comes from the theme, so a recoloured GTK theme recolours Siphon.
-   The one exception is the pictures of light and dark in the settings popover, at the end. */
+   The one exception is the pictures of light and dark on the Settings dialog's Appearance page, at the end. */
 
 .cover {
   border-radius: 6px;
@@ -39,11 +39,11 @@
   min-height: 42px;
 }
 
-/* The settings popover's round choices, drawn like GNOME Text Editor's style switcher. The style swatches
+/* The Appearance page's round choices, drawn like GNOME Text Editor's style switcher. The style swatches
    picture light and dark, so they alone keep fixed colours: libadwaita's light and dark window backgrounds. */
 
 .appearance {
-  margin: 6px;
+  padding: 18px 12px;
 }
 
 .appearance .swatch {

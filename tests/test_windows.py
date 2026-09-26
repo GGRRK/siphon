@@ -10,6 +10,7 @@ from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 
 import pytest
+from gi.repository import GLib
 
 import siphon
 from siphon import core, engine, library, names, paths, playlists as playlists_mod, updater
@@ -449,6 +450,19 @@ def test_the_windows_ffmpeg_keeps_the_equalizers_filters():
     script = (ROOT / "packaging" / "windows" / "build-av.sh").read_text()
     configure = script[script.index("./configure"):script.index("make -j")]
     assert not re.search(r"--disable-(everything|avfilter|filters\b|filter=)", configure)
+
+
+def test_every_icon_the_window_names_ships_with_adwaita():
+    """The Windows build bundles the Adwaita icon theme (all but its cursors) and no other theme draws there, so an
+    icon Adwaita lacks would show as a missing-image square: the Settings dialog's page icons included."""
+    themes = [Path(folder) / "icons" / "Adwaita" for folder in GLib.get_system_data_dirs()]
+    shipped = {icon.stem for theme in themes if theme.is_dir() for icon in theme.rglob("*-symbolic.svg")}
+    if not shipped:
+        pytest.skip("no Adwaita icon theme here")
+    source = "".join(path.read_text(encoding="utf-8") for path in (ROOT / "siphon" / "ui").glob("*.py"))
+    named = set(re.findall(r'icon_name="([a-z-]+)"', source))
+    assert {"preferences-desktop-appearance-symbolic", "software-update-available-symbolic"} <= named
+    assert named <= shipped, named - shipped
 
 
 def test_version_flag():

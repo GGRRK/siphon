@@ -1,4 +1,5 @@
-"""Light or dark style and accent colour chosen in Siphon itself, from the settings cog; "system" follows the OS.
+"""Light or dark style and accent colour chosen in Siphon itself, on the Settings dialog's Appearance page; "system"
+follows the OS.
 
 libadwaita reads the OS's choice through the settings portal on Linux and from the Windows app theme and
 accent colour on Windows (its Win32 backend: dark style since 1.3, accent colour since 1.6).
@@ -123,19 +124,18 @@ def _swatch(action: str, value: str, name: str, classes: list[str], check_align:
     return button
 
 
-def settings_button() -> Gtk.MenuButton:
-    """The header bar's cog: a popover with the style swatches and, where libadwaita has them, accent dots."""
+def style_choices() -> Gtk.Box:
+    """The three style swatches: System, Light and Dark."""
     styles = Gtk.Box(spacing=12, homogeneous=True, halign=Gtk.Align.CENTER, css_classes=["styles"])
     for style in settings.STYLES:
         styles.append(_swatch("app.style", style, _STYLE_NAMES[style], [style], Gtk.Align.END))
-    content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12, css_classes=["appearance"])
-    content.append(styles)
-    if accents_supported():
-        accents = Gtk.Grid(row_spacing=10, column_spacing=10, halign=Gtk.Align.CENTER, css_classes=["accents"])
-        for index, accent in enumerate(settings.ACCENTS):
-            accents.attach(_swatch("app.accent", accent, accent_name(accent), [accent], Gtk.Align.CENTER),
-                           index % _ACCENT_ROW, index // _ACCENT_ROW, 1, 1)
-        content.append(Gtk.Separator())
-        content.append(accents)
-    return Gtk.MenuButton(icon_name="emblem-system-symbolic", tooltip_text="Settings",
-                          popover=Gtk.Popover(child=content))
+    return styles
+
+
+def accent_choices() -> Gtk.Grid:
+    """The accent dots, System first; only where accents_supported()."""
+    accents = Gtk.Grid(row_spacing=10, column_spacing=10, halign=Gtk.Align.CENTER, css_classes=["accents"])
+    for index, accent in enumerate(settings.ACCENTS):
+        accents.attach(_swatch("app.accent", accent, accent_name(accent), [accent], Gtk.Align.CENTER),
+                       index % _ACCENT_ROW, index // _ACCENT_ROW, 1, 1)
+    return accents

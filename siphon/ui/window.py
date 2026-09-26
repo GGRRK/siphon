@@ -9,13 +9,13 @@ from typing import Any
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
 from .. import settings
-from .appearance import settings_button
 from .art import CoverArt
 from .download_page import DownloadPage, is_dismissal
 from .library_page import LibraryPage
 from .music import Music
 from .nowplaying import NowPlaying
 from .playlists_page import PlaylistsPage
+from .settings_dialog import SettingsDialog
 from .songmenu import SongActions
 
 _STOP_TIMEOUT = 10.0  # seconds to wait for cancelled downloads before closing anyway
@@ -34,6 +34,8 @@ class SiphonWindow(Adw.ApplicationWindow):
         self._prefs = prefs
         self._save_prefs = save_prefs
         self._closing = False
+        self._settings: SettingsDialog | None = None
+        self._settings_page = "appearance"  # the Settings dialog opens where it was last closed
         art = CoverArt(music.cover_file)
 
         self._toasts = Adw.ToastOverlay()
@@ -110,8 +112,8 @@ class SiphonWindow(Adw.ApplicationWindow):
         menu.append_section(None, about)
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu, primary=True,
                                        tooltip_text="Main Menu"))
-        self._settings = settings_button()
-        header.pack_end(self._settings)  # pack_end runs right to left: the cog sits left of the main menu
+        cog = Gtk.Button(icon_name="emblem-system-symbolic", tooltip_text="Settings", action_name="win.settings")
+        header.pack_end(cog)  # pack_end runs right to left: the cog sits left of the main menu
         return header
 
     def _install_actions(self) -> None:
@@ -119,7 +121,7 @@ class SiphonWindow(Adw.ApplicationWindow):
                               ("clear-finished", lambda *_: self.downloads.clear_finished()),
                               ("focus-entry", self._on_focus_entry),
                               ("search", self._on_search),
-                              ("settings", lambda *_: self._settings.popup()),
+                              ("settings", self._on_settings),
                               ("refresh-library", lambda *_: self.music.rescan())):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
@@ -163,6 +165,17 @@ class SiphonWindow(Adw.ApplicationWindow):
     def _on_search(self, *_args) -> None:
         self.show_page("library")
         self.library.focus_search()
+
+    def _on_settings(self, *_args) -> None:
+        if self._settings is not None:  # Ctrl+, again while it is open, maybe under one of its questions
+            return
+        self._settings = SettingsDialog(self.get_application(), self, self._settings_page)
+        self._settings.connect("closed", self._on_settings_closed)
+        self._settings.present(self)
+
+    def _on_settings_closed(self, dialog: SettingsDialog) -> None:
+        self._settings_page = dialog.get_visible_page_name()
+        self._settings = None
 
     # -- downloads
 
