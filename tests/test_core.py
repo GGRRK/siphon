@@ -1,3 +1,5 @@
+import shutil
+
 import pytest
 
 from siphon import core
@@ -232,3 +234,130 @@ def test_fetch_cancel_during_the_pause():
     cancel.set()
     with pytest.raises(core.Cancelled):
         core._fetch(FlakyYDL(FORBIDDEN), {"webpage_url": "u"}, cancel)
+
+
+# ---------------------------------------------------------------- album and playlist pictures
+
+
+class _FakeYdl:
+    def __init__(self, info: dict) -> None:
+        self.info = info
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc) -> None:
+        pass
+
+    def extract_info(self, url: str, download: bool = False) -> dict:
+        return self.info
+
+
+def _entry(n: int) -> dict:
+    return {"title": f"Band - Song {n}", "url": f"https://soundcloud.com/band/song-{n}", "ie_key": "Soundcloud",
+            "thumbnails": [{"url": f"https://i1.sndcdn.com/song-{n}-large.jpg"}]}
+
+
+def _resolve_info(monkeypatch, info: dict):
+    monkeypatch.setattr(core, "_ydl", lambda opts: _FakeYdl(info))
+    return core.resolve("https://soundcloud.com/band/sets/mix")
+
+
+def test_a_playlist_gets_its_largest_picture(monkeypatch):
+    # yt-dlp lists thumbnails smallest first: YouTube's own square playlist picture comes in 240, 480 and 720 px
+    square = "https://i.ytimg.com/pl_c/PLx/studio_square_thumbnail.jpg?sqp={}"
+    found = _resolve_info(monkeypatch, {
+        "title": "Mix", "extractor_key": "SoundcloudSet", "entries": [_entry(1), _entry(2)],
+        "thumbnails": [{"url": square.format(px), "width": px, "height": px} for px in (240, 480, 720)]})
+    assert (found.kind, found.cover_url) == ("playlist", square.format(720))
+
+
+def test_a_playlist_without_a_picture_takes_its_first_songs(monkeypatch):
+    found = _resolve_info(monkeypatch, {"title": "Mix", "extractor_key": "BandcampAlbum",
+                                        "entries": [None, _entry(1), _entry(2)]})
+    assert (found.kind, found.cover_url) == ("album", "https://i1.sndcdn.com/song-1-large.jpg")
+
+
+def test_a_single_track_has_no_collection_picture(monkeypatch):
+    found = _resolve_info(monkeypatch, {**_entry(1), "webpage_url": "https://soundcloud.com/band/song-1"})
+    assert found.kind == "track" and found.cover_url == ""
+
+
+SPOTIFY = "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
+YOUTUBE = "https://www.youtube.com/playlist?list=PLaklDK5Yxuss"
+
+
+@pytest.mark.parametrize("link, expected", [
+    (SPOTIFY, SPOTIFY),
+    (SPOTIFY + "?si=4f2a9c", SPOTIFY),
+    ("https://open.spotify.com/intl-de/playlist/37i9dQZF1DXcBWIGoYBM5M?si=x&nd=1", SPOTIFY),
+    ("https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M", SPOTIFY),
+    ("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M", SPOTIFY),
+    ("  spotify:user:someone:playlist:37i9dQZF1DXcBWIGoYBM5M ", SPOTIFY),
+    ("https://spotify.link/AbCdEf", "https://spotify.link/AbCdEf"),  # short links need resolving: kept
+    (YOUTUBE, YOUTUBE),
+    (YOUTUBE + "&si=abc", YOUTUBE),
+    ("https://music.youtube.com/playlist?list=PLaklDK5Yxuss&si=abc", YOUTUBE),
+    ("https://youtube.com/playlist?list=PLaklDK5Yxuss", YOUTUBE),
+    ("https://m.youtube.com/playlist?list=PLaklDK5Yxuss#top", YOUTUBE),
+    ("https://www.youtube.com/watch?v=jNQXAC9IVRw&list=PLaklDK5Yxuss&index=3", YOUTUBE),
+    ("https://soundcloud.com/band/sets/mix?si=1a2b&utm_source=clipboard&utm_medium=text",
+     "https://soundcloud.com/band/sets/mix"),
+    ("https://www.soundcloud.com/band/sets/mix/", "https://soundcloud.com/band/sets/mix"),
+    ("https://example.com/list?id=5&utm_campaign=x#part", "https://example.com/list?id=5"),
+])
+def test_source_link(link, expected):
+    assert core.source_link(link) == expected
+
+
+def test_youtube_playlist_ids_keep_their_case():
+    assert core.source_link("https://www.youtube.com/playlist?list=PLabcDEF") != \
+        core.source_link("https://www.youtube.com/playlist?list=PLabcdef")
+
+
+def _png(width: int, height: int) -> bytes:
+    import struct
+    import zlib
+
+    rows = b"".join(b"\x00" + b"\x10\x80\xf0" * width for _ in range(height))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
+
+
+def _size(image: bytes) -> tuple[int, int]:
+    import gi
+
+    gi.require_version("GdkPixbuf", "2.0")
+    from gi.repository import GdkPixbuf
+
+    loader = GdkPixbuf.PixbufLoader()
+    loader.write(image)
+    loader.close()
+    pixbuf = loader.get_pixbuf()
+    return pixbuf.get_width(), pixbuf.get_height()
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg not installed")
+def test_cover_image_is_the_first_that_downloads_squared(monkeypatch):
+    def get(url: str, **_kw) -> tuple[str, bytes]:
+        if "gone" in url:
+            raise SiphonError("Couldn't find that page - check the link.")
+        return url, _png(480, 360)  # an old 4:3 YouTube thumbnail
+
+    monkeypatch.setattr(core, "http_get", get)
+    image = core.cover_image(["https://example.com/gone.jpg", "", "https://example.com/hq.jpg"])
+    assert image.startswith(b"\xff\xd8\xff") and _size(image) == (360, 360)
+    assert core.cover_image(["https://example.com/gone.jpg"]) is None
+
+
+def test_cover_image_without_ffmpeg_is_none(monkeypatch):
+    def no_ffmpeg(*_args, **_kw):
+        raise FileNotFoundError("ffmpeg")
+
+    monkeypatch.setattr(core, "http_get", lambda url, **_kw: (url, _png(8, 8)))
+    monkeypatch.setattr(core.subprocess, "run", no_ffmpeg)
+    assert core.cover_image(["https://example.com/a.jpg"]) is None

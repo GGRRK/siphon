@@ -50,6 +50,7 @@ def test_track_embed(fixture_text):
     assert t.url == f"https://open.spotify.com/track/{ID}"
     assert t.query == "Rick Astley - Never Gonna Give You Up"
     assert t.cover_url.endswith("ab67616d0000b273baf89eb11ec7c657805d2da0")  # the 640 px one
+    assert result.cover_url == ""  # a single track has no picture of its own beyond its cover
 
 
 def test_album_embed(fixture_text):
@@ -61,6 +62,7 @@ def test_album_embed(fixture_text):
     assert (first.title, first.track_no, first.index) == ("Speak to Me", 1, 0)
     assert last.track_no == 10 and last.album == "The Dark Side of the Moon"
     assert all(t.cover_url and t.artist == "Pink Floyd" for t in result.tracks)
+    assert result.cover_url.endswith("ab67616d0000b273db216ca805faf5fe35df4ee6")  # 640 px, listed last of three
 
 
 def test_playlist_embed(fixture_text):
@@ -70,6 +72,7 @@ def test_playlist_embed(fixture_text):
     assert [t.index for t in result.tracks] == [0, 1, 2]
     assert all(t.album == "" and t.cover_url == "" and t.url for t in result.tracks)
     assert result.note == ""
+    assert result.cover_url.endswith("ab67706f0000000309dec89719704eea4f218966")  # the playlist's 640 px picture
 
     entity["trackList"] = entity["trackList"] * 34  # 102 entries: the embed's cap was hit
     assert "first 100 tracks" in spotify.from_entity(entity).note

@@ -76,6 +76,7 @@ class Resolved:
     tracks: list[Track]
     folder: str | None  # subfolder for multi-track links, None for a single track
     note: str = ""
+    cover_url: str = ""  # an album's or playlist's own picture, largest found; "" for a single track
 
 
 @dataclass
@@ -377,7 +378,11 @@ def _resolve_ytdlp(url: str) -> Resolved:
     if kind == "album":
         for n, t in enumerate(tracks, 1):
             t.album, t.track_no = t.album or title, t.track_no or n
-    return Resolved(title=title, kind=kind, tracks=tracks, folder=safe_name(title))
+    # YouTube gives a playlist's own square picture (measured 2026-09-26: 240, 480 and 720 px), or for a
+    # playlist without one its first video's thumbnail (up to 336x188, squared to 188).
+    covers = _thumbnails(info)
+    return Resolved(title=title, kind=kind, tracks=tracks, folder=safe_name(title),
+                    cover_url=covers[0] if covers else tracks[0].cover_url)
 
 
 def _resolve_page(url: str, reason: str) -> Resolved:
@@ -389,6 +394,29 @@ def _resolve_page(url: str, reason: str) -> Resolved:
     if track is None:
         raise SiphonError(reason)
     return Resolved(title=_label(track), kind="track", tracks=[track], folder=None)
+
+
+def source_link(url: str) -> str:
+    """One spelling of an album or playlist link, so the same playlist pasted in another form is recognised:
+    Spotify's intl-xx/, embed/ and spotify: URI forms and YouTube's list= id on any of its hosts become one
+    link; other links lose share-tracking parameters (si=, utm_*=), the fragment and www."""
+    url = url.strip()
+    from . import spotify
+
+    if spotify.handles(url):
+        try:
+            kind, item = spotify.parse_link(url)
+        except SiphonError:
+            return url  # a spotify.link short link: only resolving it tells where it leads
+        return f"https://open.spotify.com/{kind}/{item}"
+    parts = urllib.parse.urlsplit(url)
+    query = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    if _is_youtube(url) and (ids := [value for key, value in query if key == "list"]):
+        return f"https://www.youtube.com/playlist?list={ids[0]}"
+    query = [(key, value) for key, value in query if key != "si" and not key.startswith("utm_")]
+    host = parts.netloc.lower().removeprefix("www.")
+    return urllib.parse.urlunsplit((parts.scheme.lower(), host, parts.path.rstrip("/"),
+                                    urllib.parse.urlencode(query), ""))
 
 
 def _label(track: Track) -> str:
@@ -597,6 +625,21 @@ def _cover_urls(track: Track, info: dict) -> list[str]:
     if track.query:
         return [track.cover_url] if track.cover_url else _thumbnails(info)
     return _thumbnails(info) + [track.cover_url]
+
+
+def cover_image(urls: list[str]) -> bytes | None:
+    """The first of urls that downloads, as a JPEG cropped to a centred square like a track's cover;
+    None when none does. Blocking: the window calls it from a worker thread."""
+    try:
+        work = Path(tempfile.mkdtemp(prefix="siphon-cover-"))
+    except OSError:
+        return None
+    try:
+        return _cover(urls, work)
+    except OSError:  # no ffmpeg, or no room for the work files: no picture, never a failure
+        return None
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 def _cover(urls: list[str], work: Path) -> bytes | None:

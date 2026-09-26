@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from gi.repository import GObject
 
-from siphon import covers, library, playlists
+from siphon import core, covers, library, playlists
 from siphon.player import Player
 
 TESTS = Path(__file__).resolve().parent
@@ -25,6 +25,7 @@ def _load(name: str):
 
 fake_player = _load("fake_player")
 fake_library = _load("fake_library")
+fake_core = _load("fake_core")
 
 
 def _public(cls: type) -> set[str]:
@@ -54,3 +55,11 @@ def test_the_fake_songs_and_playlists_have_the_real_fields():
 def test_the_fake_covers_match_the_real_signature():
     assert inspect.signature(covers.cover_file).parameters.keys() == \
         inspect.signature(fake_library.cover_file).parameters.keys()
+
+
+def test_the_fake_core_has_the_real_fields_and_what_the_window_calls():
+    for real, fake in ((core.Track, fake_core.Track), (core.Resolved, fake_core.Resolved)):
+        assert {f.name for f in dataclasses.fields(real)} <= {f.name for f in dataclasses.fields(fake)}
+    for name in ("resolve", "download", "is_supported", "source_link", "cover_image"):
+        assert inspect.signature(getattr(core, name)).parameters.keys() == \
+            inspect.signature(getattr(fake_core, name)).parameters.keys()

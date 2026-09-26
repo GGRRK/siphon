@@ -3,13 +3,16 @@
 Any link resolves to one track, or five for links containing "playlist".
 Downloads fail for links containing "fail"; links containing "unreadable"
 fail while being read. Nothing touches the network; "downloads" are empty
-files written into the requested folder.
+files written into the requested folder, and a playlist's picture is a
+generated gradient.
 """
 
 import re
+import struct
 import tempfile
 import threading
 import time
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -48,6 +51,7 @@ class Resolved:
     tracks: list[Track] = field(default_factory=list)
     folder: str | None = None
     note: str = ""
+    cover_url: str = ""
 
 
 @dataclass
@@ -88,11 +92,34 @@ def resolve(url: str) -> Resolved:
             for i, (title, artist) in enumerate(_PLAYLIST, start=1)
         ]
         return Resolved(title="Late Night Drive & Chill", kind="playlist", tracks=tracks,
-                        folder="Late Night Drive & Chill", note="Spotify shows the first 100 tracks of this playlist")
+                        folder="Late Night Drive & Chill", note="Spotify shows the first 100 tracks of this playlist",
+                        cover_url=f"fake://cover/{source_link(url)}")
     slug = re.split(r"[/=?#]", url.rstrip("/"))[-1]
     title = "Me at the zoo" if slug == "jNQXAC9IVRw" else slug.replace("-", " ").replace("_", " ").title()
     track = Track(url=url, title=title, artist="jawed", source=source, duration=19.0)
     return Resolved(title=track.title, kind="track", tracks=[track], folder=None)
+
+
+def source_link(url: str) -> str:
+    return url.strip().split("?")[0].rstrip("/")
+
+
+def cover_image(urls: list[str]) -> bytes | None:
+    """A 300 px PNG gradient whose colours follow the url; None for urls containing "fail"."""
+    time.sleep(0.5)
+    url = next(filter(None, urls), "")
+    if not url or "fail" in url:
+        return None
+    seed = zlib.crc32(url.encode())
+    top, bottom = (seed & 0xFF, seed >> 8 & 0xFF, seed >> 16 & 0xFF), (40, 30, seed >> 24 & 0xFF)
+    rows = b"".join(b"\x00" + bytes(round(a + (b - a) * y / 299) for a, b in zip(top, bottom)) * 300
+                    for y in range(300))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    header = struct.pack(">IIBBBBB", 300, 300, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b"")
 
 
 def _wait(seconds: float, cancel: threading.Event | None) -> None:

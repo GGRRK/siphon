@@ -103,7 +103,7 @@ def from_entity(entity: dict) -> Resolved:
     note = ""
     if len(entity.get("trackList") or []) >= EMBED_CAP:
         note = f"Spotify only shows the first {EMBED_CAP} tracks of this {kind}."
-    return Resolved(title=name, kind=kind, tracks=tracks, folder=safe_name(folder), note=note)
+    return Resolved(title=name, kind=kind, tracks=tracks, folder=safe_name(folder), note=note, cover_url=cover)
 
 
 def _track(uri: str, title: str, artists: str, duration_ms: int | None, cover: str) -> Track:
