@@ -31,6 +31,7 @@ class Player(GObject.Object):
         self.shuffle = False
         self.repeat = "off"
         self.volume = 0.8
+        self.equalizer = None  # the gains of the last set_equalizer(), None when flat or off
         self._speed = float(os.environ.get("SIPHON_FAKE_SPEED", "1"))
         self._timer = 0
 
@@ -92,6 +93,9 @@ class Player(GObject.Object):
     def set_volume(self, v: float) -> None:
         self.volume = max(0.0, min(1.0, v))
         self.emit("changed")
+
+    def set_equalizer(self, gains) -> None:
+        self.equalizer = tuple(gains) if gains is not None and any(gains) else None
 
     def set_shuffle(self, on: bool) -> None:
         self.shuffle = on

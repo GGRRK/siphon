@@ -71,7 +71,8 @@ def test_save_uses_xdg_config_home(monkeypatch, tmp_path):
     assert json.loads((tmp_path / "siphon" / "settings.json").read_text()) == {
         "format": "m4a", "folder": str(tmp_path / "x"), "volume": 0.8, "shuffle": False,
         "repeat": "off", "sort": "added", "page": "download", "style": "system", "accent": "system",
-        "auto_update": True, "auto_engine": True}
+        "auto_update": True, "auto_engine": True,
+        "equalizer": {"enabled": True, "bands": [0.0] * 10, "preset": "Flat", "presets": {}}}
 
 
 def test_failed_write_keeps_old_file_and_cleans_up(monkeypatch, tmp_path, defaults):

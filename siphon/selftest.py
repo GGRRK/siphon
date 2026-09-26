@@ -2,7 +2,7 @@
 
 It checks ffmpeg, ffprobe, a JavaScript runtime and libmpv, then makes a 2 s tone in a temporary
 music folder, tags it, scans it into a Library, round-trips a playlist and plays it silently to the
-end. --net also downloads a YouTube music video as Opus, probes the file and has the JavaScript runtime
+end through the equalizer. --net also downloads a YouTube music video as Opus, probes the file and has the JavaScript runtime
 solve that video's YouTube challenge. Exit status 0 = all good.
 """
 
@@ -175,12 +175,16 @@ def _playlist(playlists, music: Path, state: dict) -> str:
 def _playback(state: dict) -> str:
     from gi.repository import GLib
 
+    from . import eq
     from .player import Player
 
-    player, loop, seen = Player(), GLib.MainLoop(), {"top": 0.0, "played": False, "error": ""}
+    player, loop, seen = Player(), GLib.MainLoop(), {"top": 0.0, "played": False, "error": "", "filters": None}
 
     def on_position(_player, seconds: float) -> None:
         seen["top"] = max(seen["top"], seconds)
+        if seen["filters"] is None:
+            # mpv drops a filter its libavfilter lacks without a word, and plays on without it
+            seen["filters"] = [f.get("label") for f in player._mpv.af]
 
     def on_changed(_player) -> None:
         seen["played"] = seen["played"] or player.state == "playing"
@@ -201,6 +205,7 @@ def _playback(state: dict) -> str:
     player.connect("error", on_error)
     timer = GLib.timeout_add_seconds(PLAY_TIMEOUT, on_timeout)
     try:
+        player.set_equalizer(eq.BUILT_IN["Rock"])
         player.play_songs([state["song"]])
         loop.run()
     finally:
@@ -211,7 +216,9 @@ def _playback(state: dict) -> str:
         raise Failed(seen["error"])
     if seen["top"] <= 1.0:
         raise Failed(f"ended at {seen['top']:.2f} s, before 1 s")
-    return f"played to {seen['top']:.2f} s and stopped at the end"
+    if seen["filters"] != list(eq.FILTERS):
+        raise Failed(f"the equalizer's filters are missing: mpv has {seen['filters']}")
+    return f"played to {seen['top']:.2f} s through the equalizer and stopped at the end"
 
 
 def _download(music: Path) -> str:

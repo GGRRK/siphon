@@ -1,5 +1,5 @@
 """The app's remembered choices: download format and folder, player state, library sort, last page, appearance,
-and whether Siphon and its download engine update themselves.
+whether Siphon and its download engine update themselves, and the equalizer.
 
 Stored as JSON in $XDG_CONFIG_HOME/siphon/settings.json (~/.config by
 default; %APPDATA%\\Siphon on Windows). A missing or damaged file silently falls back to the defaults,
@@ -10,10 +10,10 @@ import json
 import math
 import os
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from . import paths
+from . import eq, paths
 
 REPEAT_MODES = ("off", "all", "one")
 SORTS = ("added", "title", "artist")
@@ -36,6 +36,9 @@ class Settings:
     accent: str = "system"
     auto_update: bool = True  # Siphon checks GitHub at every start and gets a new release ready
     auto_engine: bool = True  # the same for yt-dlp, from PyPI
+    # in this file rather than one of its own: a slider drag saves many times a second, and the app already
+    # collects those into one atomic write of this file
+    equalizer: eq.Equalizer = field(default_factory=eq.Equalizer)
 
 
 def config_path() -> Path:
@@ -79,6 +82,7 @@ def load(defaults: Settings, formats: tuple[str, ...], path: Path | None = None)
         accent=choice("accent", ACCENTS),
         auto_update=flag("auto_update"),
         auto_engine=flag("auto_engine"),
+        equalizer=eq.from_json(data.get("equalizer"), defaults.equalizer),
     )
 
 
