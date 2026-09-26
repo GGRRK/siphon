@@ -211,6 +211,7 @@ class _Quiet:
 def _ydl(extra: dict) -> "yt_dlp.YoutubeDL":
     import yt_dlp
 
+    _in_background(getattr(yt_dlp.utils, "Popen", None))
     runtime = js_runtime()
     return yt_dlp.YoutubeDL({
         "quiet": True,
@@ -223,6 +224,27 @@ def _ydl(extra: dict) -> "yt_dlp.YoutubeDL":
         "socket_timeout": 20,
         **extra,
     })
+
+
+_background_lock = threading.Lock()
+
+
+def _in_background(popen: type | None) -> None:
+    """Every program yt-dlp runs - ffmpeg converting, ffprobe, the JavaScript runtime solving YouTube's challenges -
+    runs below normal priority (paths.background). yt-dlp starts them all through its one Popen class, whose start
+    this wraps, once; a yt-dlp without that class runs them as it would anyway."""
+    with _background_lock:
+        if popen is None or getattr(popen, "_siphon_background", False):
+            return
+        start = popen.__init__
+
+        def start_in_background(self, *args, **kwargs) -> None:
+            kwargs["creationflags"] = kwargs.get("creationflags", 0) | paths.background()
+            start(self, *args, **kwargs)
+            paths.lower_priority(self.pid)
+
+        popen.__init__ = start_in_background
+        popen._siphon_background = True
 
 
 REFUSED = "YouTube refused the download - try Update engine."
@@ -678,12 +700,13 @@ def _cover(urls: list[str], work: Path) -> bytes | None:
             continue
         src, dst = work / "cover-source", work / "cover.jpg"
         src.write_bytes(data)
-        done = subprocess.run(
+        with subprocess.Popen(
             ["ffmpeg", "-v", "error", "-y", "-i", str(src),
              "-vf", "crop='min(iw,ih)':'min(iw,ih)'", "-frames:v", "1", "-q:v", "2", str(dst)],
-            capture_output=True, creationflags=paths.no_window(),
-        )
-        if done.returncode == 0 and dst.is_file():
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=paths.no_window() | paths.background(),
+        ) as ffmpeg:
+            paths.lower_priority(ffmpeg.pid)
+        if ffmpeg.returncode == 0 and dst.is_file():
             return dst.read_bytes()
     return None
 

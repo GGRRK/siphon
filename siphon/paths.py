@@ -11,6 +11,10 @@ import sys
 from pathlib import Path, PureWindowsPath
 
 CREATE_NO_WINDOW = 0x08000000  # Windows: a console tool started from the window app flashes no console
+# Converting and the like run below normal priority, so a game (or anything else the user runs) keeps the CPU it
+# needs and the work fills what is left; the player is in Siphon's own process, which keeps normal priority.
+BELOW_NORMAL_PRIORITY_CLASS = 0x00004000  # Windows: one class below normal
+BACKGROUND_NICE = 10  # POSIX: added to the nice value a helper starts with, up to 19
 
 
 def windows() -> bool:
@@ -20,6 +24,22 @@ def windows() -> bool:
 def no_window() -> int:
     """subprocess creationflags for the helper tools Siphon runs."""
     return CREATE_NO_WINDOW if windows() else 0
+
+
+def background() -> int:
+    """subprocess creationflags that start a helper tool below normal priority on Windows (for POSIX, where a
+    program cannot be started so, see lower_priority)."""
+    return BELOW_NORMAL_PRIORITY_CLASS if windows() else 0
+
+
+def lower_priority(pid: int) -> None:
+    """POSIX: a helper tool just started drops below normal priority (Windows starts it there: background())."""
+    if windows():
+        return
+    try:
+        os.setpriority(os.PRIO_PROCESS, pid, min(19, os.getpriority(os.PRIO_PROCESS, pid) + BACKGROUND_NICE))
+    except OSError:  # it has finished already
+        pass
 
 
 def config_dir() -> Path:

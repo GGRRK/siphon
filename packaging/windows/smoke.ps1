@@ -138,7 +138,26 @@ Check 'update check against GitHub' {
 }
 
 Check 'Spotify track as M4A' {
-    Run $cli @('get', 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT', '-f', 'm4a', '-o', $music) | Out-Null
+    # the programs Siphon runs (ffmpeg converting, ffprobe, QuickJS) start below normal priority (siphon/paths.py)
+    $watch = Start-Job {
+        while ($true) {
+            Get-Process ffmpeg, ffprobe, qjs -ErrorAction SilentlyContinue |
+                ForEach-Object { "$($_.ProcessName) $($_.PriorityClass)" }
+            Start-Sleep -Milliseconds 50
+        }
+    }
+    try {
+        Run $cli @('get', 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT', '-f', 'm4a', '-o', $music) | Out-Null
+    } finally {
+        Stop-Job $watch
+        $programs = @(Receive-Job $watch | Where-Object { $_ } | Sort-Object -Unique)
+        Remove-Job $watch
+    }
+    Write-Host "  programs seen: $($programs -join ', ')"
+    if (-not ($programs -match '^ffmpeg ')) { throw 'no ffmpeg seen converting' }
+    $normal = @($programs | Where-Object { $_ -notmatch ' (BelowNormal)?$' })  # an empty class: it had just ended
+    if ($normal.Count) { throw "not below normal priority: $($normal -join ', ')" }
+    Write-Host '  ok: every program ran below normal priority'
     $song = Get-ChildItem $music -Filter *.m4a -Recurse | Select-Object -First 1
     if (-not $song) { throw "no .m4a in $music" }
     $info = Run $probe @('-v', 'error', '-show_entries', 'stream=codec_name:format=duration', '-of', 'csv=p=0', $song.FullName)
