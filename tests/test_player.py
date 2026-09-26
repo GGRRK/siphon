@@ -1,6 +1,9 @@
-"""The libmpv player, driven for real with short generated tones through mpv's null audio output (silent)."""
+"""The libmpv player, driven for real with short generated tones through mpv's null audio output, or into a WAV file
+where the equalizer is measured (silent either way)."""
 
+import array
 import locale
+import math
 import os
 import shutil
 import subprocess
@@ -11,6 +14,7 @@ from pathlib import Path
 import pytest
 from gi.repository import GLib
 
+from siphon import eq
 from siphon.library import Song
 from siphon.player import Player
 
@@ -306,3 +310,218 @@ def test_shutdown_is_prompt_and_final(player, tones):
     player.shutdown()
     run_for(0.4)
     assert len(seen.positions) == count
+
+
+# -- the equalizer ------------------------------------------------------------------------------------------------
+
+ROCK = eq.BUILT_IN["Rock"]
+MINE = (1.0, 2.0, 3.0, 0.0, -1.5, 0.0, 0.5, 0.0, -6.0, 9.0)
+LEVEL = 0.02  # each of the ten tones in the test chord: all ten together stay far from full scale
+
+
+def kept_time(seen: Recorder) -> bool:
+    """The reported position kept pace with the clock: no stall, no jump back to the start."""
+    (t0, p0), (t1, p1) = seen.positions[0], seen.positions[-1]
+    moved = [p for _, p in seen.positions]
+    return len(moved) >= 3 and moved == sorted(moved) and abs((p1 - p0) - (t1 - t0)) < 0.15
+
+
+def filters(player: Player) -> dict[str, str]:
+    """The playing song's filters, as mpv built them: label -> gain (the preamp's volume)."""
+    return {f["label"]: f["params"].get("g", f["params"].get("volume")) for f in player._mpv.af}
+
+
+def test_no_equalizer_or_a_flat_one_runs_no_filter(player, tones):
+    player.set_equalizer(eq.FLAT)
+    player.play_songs([tones["long"]])
+    run_until(lambda: player.position > 0.3)
+    assert player._mpv.af == []
+    player.set_equalizer(None)
+    assert player._mpv.af == []
+
+
+def test_every_song_starts_with_the_equalizer_set_before_it(player, tones):
+    player.set_equalizer(ROCK)
+    player.play_songs([tones["t1"], tones["t2"]])
+    run_until(lambda: player.position > 0.2)
+    first = filters(player)
+    assert tuple(first) == eq.FILTERS
+    assert (first["preamp"], first["eq0"], first["eq4"]) == ("-7.8dB", "5", "-2")
+    run_until(lambda: player.current == tones["t2"] and player.position > 0.2)
+    assert filters(player) == first  # the gapless follow-on song too
+
+
+def test_moving_a_band_while_playing_neither_rebuilds_nor_restarts(player, tones):
+    player.set_equalizer(ROCK)
+    player.play_songs([tones["long"]])
+    run_until(lambda: player.position > 1.0)
+    seen, built = Recorder(player), player._mpv.af
+    for db in (6, 7, 8, 9):
+        player.set_equalizer(ROCK[:9] + (db,))
+        run_for(0.15)
+    run_for(0.8)
+    assert player._mpv.af == built  # af-command changed the running filters; `af` was never rewritten
+    assert (player.state, seen.seeks, seen.errors) == ("playing", [], [])
+    assert kept_time(seen)
+
+
+def test_a_seek_after_live_changes_keeps_them(player, tones):
+    """mpv rebuilds the filters from `af` on a seek, so `af` must carry the live gains by then."""
+    player.set_equalizer(ROCK)
+    player.play_songs([tones["long"]])
+    run_until(lambda: player.position > 0.5)
+    player.set_equalizer(MINE)
+    assert filters(player)["eq9"] == "5"  # changed live only
+    player.seek(4.0)
+    run_until(lambda: player.position >= 4.0)
+    assert (filters(player)["eq9"], filters(player)["preamp"]) == ("9", f"{eq.headroom(MINE):g}dB")
+
+
+def test_switching_off_mid_song_zeroes_the_filters_and_the_next_seek_drops_them(player, tones):
+    player.set_equalizer(ROCK)
+    player.play_songs([tones["long"]])
+    run_until(lambda: player.position > 0.5)
+    seen, built = Recorder(player), player._mpv.af
+    player.set_equalizer(None)
+    run_until(lambda: player._live_eq == eq.FLAT)  # 0 dB by commands: taking them out would click
+    player.set_equalizer(MINE)
+    run_until(lambda: player._live_eq == MINE)
+    player.set_equalizer(None)
+    run_until(lambda: player._live_eq == eq.FLAT)
+    assert player._mpv.af == built
+    run_for(0.6)
+    assert (player.state, seen.seeks, player.current) == ("playing", [], tones["long"])
+    assert kept_time(seen)
+    player.seek(5.0)
+    run_until(lambda: player.position >= 5.0)
+    assert player._mpv.af == []
+
+
+def test_switching_on_mid_song_puts_the_filters_in_at_0_db_then_moves_them(player, tones):
+    player.play_songs([tones["long"]])
+    run_until(lambda: player.position > 0.5)
+    seen = Recorder(player)
+    player.set_equalizer(MINE)
+    assert set(filters(player).values()) == {None, "0", "0dB"}  # the rate filter, the bands, the preamp
+    run_until(lambda: player._live_eq == MINE)
+    run_for(0.8)
+    assert (player.state, seen.seeks) == ("playing", [])
+    assert kept_time(seen)
+    player.seek(5.0)
+    run_until(lambda: player.position >= 5.0)
+    assert filters(player)["eq9"] == "9"
+
+
+def test_a_big_preamp_move_is_made_in_half_decibel_steps(player, tones):
+    """The preamp is a plain gain: in one jump from Rock to off it clicks, in 0.5 dB steps it does not."""
+    player.set_equalizer(ROCK)
+    player.play_songs([tones["long"]])
+    run_until(lambda: player.position > 0.5)
+    walked = [player._live_eq]
+    player.set_equalizer(None)
+    while walked[-1] != eq.FLAT:
+        run_until(lambda: player._live_eq != walked[-1])
+        walked.append(player._live_eq)
+    preamps = [eq.headroom(gains) for gains in walked]
+    assert preamps[0] == -7.8 and preamps[-1] == 0
+    assert max(abs(b - a) for a, b in zip(preamps, preamps[1:])) <= 0.6  # 0.5, and the rounding to 0.1 dB
+
+
+def test_changes_made_while_paused_wait_for_the_resume(player, tones):
+    player.set_equalizer(ROCK)
+    player.play_songs([tones["long"]])
+    run_until(lambda: player.position > 0.5)
+    player.pause()
+    player.set_equalizer(None)
+    run_for(0.3)
+    assert player._live_eq == ROCK  # stepping in a pause would land every step at once when it resumes
+    player.play()
+    run_until(lambda: player._live_eq == eq.FLAT)
+
+
+def test_the_next_song_starts_with_gains_changed_during_this_one(player, tones):
+    player.set_equalizer(ROCK)
+    player.play_songs([tones["t1"], tones["t2"]])
+    run_until(lambda: player.position > 0.2)
+    player.set_equalizer(MINE)
+    run_until(lambda: player.current == tones["t2"] and player.position > 0.2)
+    assert filters(player)["eq9"] == "9"
+
+
+def test_gains_changed_while_a_song_opens_reach_it(player, tones):
+    player.set_equalizer(ROCK)
+    player.play_songs([tones["long"]])
+    player.set_equalizer(MINE)  # before mpv has made the song's filters: applied once it has opened
+    run_until(lambda: player.position > 0.5)
+    assert player._live_eq == MINE
+    player.seek(2.0)
+    run_until(lambda: player.position >= 2.0)
+    assert filters(player)["eq9"] == "9"
+
+
+# measured: the chord's ten tones through the real player, written by mpv's pcm output into a WAV file
+
+@pytest.fixture(scope="module")
+def chord(tmp_path_factory) -> Song:
+    path = tmp_path_factory.mktemp("chord") / "chord.wav"
+    tones = "+".join(f"{LEVEL}*sin(2*PI*{hz}*t)" for hz in eq.FREQUENCIES)
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i", f"aevalsrc={tones}:s=48000:d=3",
+                    "-c:a", "pcm_s16le", str(path)], check=True)
+    return Song(path, "Chord", "", "", 0.0, None, 0.0, path.stat().st_size)
+
+
+def record(song: Song, gains, tmp_path: Path, monkeypatch) -> array.array:
+    """Play the song to its end into a WAV file; its first channel, as floats."""
+    monkeypatch.setenv("SIPHON_AO", "pcm")
+    out = tmp_path / "out.wav"
+    player = Player()
+    try:
+        player._mpv["ao-pcm-file"] = str(out)
+        player.set_equalizer(gains)
+        player.play_songs([song])
+        run_until(lambda: player.state == "stopped", 10)
+    finally:
+        player.shutdown()  # the WAV header is finished when the output closes
+    raw = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(out), "-af", "pan=mono|c0=c0",
+                          "-f", "f64le", "-"], capture_output=True, check=True).stdout
+    return array.array("d", raw)
+
+
+def level_db(samples, hz: float, rate: int = 48000) -> float:
+    """Goertzel: the tone's level against LEVEL; exact over whole cycles, which one second of an integer Hz is."""
+    c = 2 * math.cos(2 * math.pi * hz / rate)
+    s1 = s2 = 0.0
+    for x in samples:
+        s1, s2 = x + c * s1 - s2, s1
+    return 20 * math.log10(2 * math.sqrt(s1 * s1 + s2 * s2 - c * s1 * s2) / len(samples) / LEVEL)
+
+
+@pytest.mark.parametrize("gains", [None, eq.BUILT_IN["Bass"], ROCK, MINE], ids=["flat", "bass", "rock", "custom"])
+def test_measured_gain_at_every_band_is_the_curve_less_the_preamp(chord, gains, tmp_path, monkeypatch):
+    samples = record(chord, gains, tmp_path, monkeypatch)
+    second = samples[48000:96000]  # the second second: the filters have settled
+    for hz in eq.FREQUENCIES:
+        expected = eq.response(gains, hz, 48000) + eq.headroom(gains) if gains else 0.0
+        assert level_db(second, hz) == pytest.approx(expected, abs=0.1), hz
+
+
+def test_the_preamp_keeps_a_full_scale_tone_at_the_curves_peak_from_clipping(tmp_path, monkeypatch):
+    loud = (12.0,) * 10  # a preamp of minus the highest slider would leave this 7.6 dB (2.4x) over full scale
+    rate = 44100  # where this curve peaks highest: 19.64 dB at 7988 Hz
+    hz = max(range(4000, 12000), key=lambda f: eq.response(loud, f, rate))
+    path = tmp_path / "full.wav"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    f"aevalsrc=sin(2*PI*{hz}*t):s={rate}:d=2", "-c:a", "pcm_f32le", str(path)], check=True)
+    samples = record(Song(path, "Full", "", "", 0.0, None, 0.0, 1), loud, tmp_path, monkeypatch)
+    peak = max(map(abs, samples[rate:]))
+    assert 0.98 < peak < 1.0  # close to full scale, not over it: the preamp is 19.7 dB for a 19.64 dB peak
+
+
+@pytest.mark.parametrize("rate", [8000, 16000, 32000])
+def test_a_band_at_half_the_sample_rate_does_not_turn_the_song_into_nan(rate, tmp_path, monkeypatch):
+    """ffmpeg's equalizer gives NaN for a band exactly at the Nyquist frequency; the chain resamples such files."""
+    path = tmp_path / f"low{rate}.wav"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    f"sine=frequency=440:sample_rate={rate}:duration=1", "-c:a", "pcm_s16le", str(path)], check=True)
+    samples = record(Song(path, "Low", "", "", 0.0, None, 0.0, 1), ROCK, tmp_path, monkeypatch)
+    assert len(samples) > 40000 and not any(map(math.isnan, samples)) and 0.01 < max(map(abs, samples)) < 1.0

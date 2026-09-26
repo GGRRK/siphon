@@ -99,6 +99,7 @@ class SiphonApp(Adw.Application):
         self.player.set_volume(self.prefs.volume)
         self.player.set_shuffle(self.prefs.shuffle)
         self.player.set_repeat(self.prefs.repeat)
+        self.player.set_equalizer(self.prefs.equalizer.gains())
         self.player.connect("changed", self._on_player_changed)
         library = library_module.Library(self.prefs.folder)
         # lookup: playlists label their entries from the library instead of reading tags again.
@@ -143,6 +144,11 @@ class SiphonApp(Adw.Application):
         """Soon rather than now: dragging the volume changes the settings many times a second."""
         if not self._save_source:
             self._save_source = GLib.timeout_add(_SAVE_DELAY_MS, self._write_settings)
+
+    def apply_equalizer(self) -> None:
+        """After a change to self.prefs.equalizer: play it from now on and remember it."""
+        self.player.set_equalizer(self.prefs.equalizer.gains())
+        self.save_settings()
 
     def _write_settings(self) -> bool:
         self._save_source = 0

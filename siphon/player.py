@@ -4,21 +4,33 @@ mpv runs its own event thread; every callback from it is handed to the GLib main
 main thread and every signal is emitted there. mpv's playlist always holds at most two entries - the song playing
 and the one that follows it - so mpv can cross into the next song without a gap, while the queue, the shuffle
 order and repeat stay here.
+
+The equalizer is mpv's filter chain (eq.chain). mpv builds a song's filters from its `af` value when the song starts
+and again after every seek. Rewriting `af` under a playing song rebuilds the filters it changes from silence, which
+clicks, so each song is loaded with the chain as a per-file option and a playing song's filters change by af-command,
+which keeps their state. A band then moves cleanly even by 6 dB; only the preamp, a plain gain, jumps, so a big
+preamp move is made in steps (eq.step). Filters are put into a playing song all at 0 dB, an exact pass-through, then
+moved; switching off leaves them at 0 dB. The next seek (whose own reset hides it) or song rebuilds them as they are.
+
+Measured on a 100 Hz tone at 0.25 of full scale, as the sharpest bend in the wave against a clean sine's at +12 dB:
+Rock put in whole 114x, taken out 376x; filters at 0 dB put in or taken out 0.3x (the same as no change).
 """
 
 import locale
 import os
 import random
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 
 import mpv
 from gi.repository import GLib, GObject
 
+from . import eq
 from .library import Song
 
 _TICK = 0.25  # seconds between "position" emissions while playing
 _RESTART_AFTER = 3.0  # previous() restarts the song instead once this far in
+_STEP_MS = 25  # between the equalizer's steps: about one block of sound for Opus, AAC and MP3 (20-26 ms)
 
 _ERROR = mpv.MpvEventEndFile.ERROR
 
@@ -52,6 +64,11 @@ class Player(GObject.Object):
         self._pending_seek: float | None = None
         self._last_tick = 0.0  # event thread only
         self._playing_entry = 0  # event thread only: the entry mpv last started
+        self._eq: tuple[float, ...] | None = None  # the gains asked for; None = no filters
+        self._entry_eq: dict[int, tuple[float, ...] | None] = {}  # the gains each mpv entry was loaded with
+        self._live_eq: tuple[float, ...] | None = None  # what the current song's filters play now; None = none there
+        self._built_eq: tuple[float, ...] | None = None  # what its `af` holds: a seek rebuilds the filters from it
+        self._ramp = 0  # GLib source of the equalizer's next step
         options = dict(video=False, ytdl=False, input_default_bindings=False, terminal=False,
                        gapless_audio="weak", audio_display=False, idle=True, audio_client_name="Siphon")
         if ao := os.environ.get("SIPHON_AO"):
@@ -129,6 +146,7 @@ class Player(GObject.Object):
         elif self.state == "paused":
             self._mpv.pause = False
             self._set_state("playing")
+            self._retune()  # changes made while paused are stepped in now
 
     def pause(self) -> None:
         if self._mpv is not None and self.state == "playing":
@@ -181,6 +199,17 @@ class Player(GObject.Object):
             self._mpv.volume = self.volume * 100
         self.emit("changed")
 
+    def set_equalizer(self, gains: Sequence[float] | None) -> None:
+        """Play through eq.chain(gains) from now on; None, or every band at 0 dB, runs no filter at all (a song
+        already playing through filters keeps them, at 0 dB, until its next seek)."""
+        gains = tuple(gains) if gains is not None and any(gains) else None
+        if gains == self._eq:
+            return
+        self._eq = gains
+        if self._mpv is not None and self._entry is not None:
+            self._queue_upcoming()  # first, so the follow-on song starts with the new chain even if this one ends now
+            self._retune()
+
     def set_shuffle(self, on: bool) -> None:
         if on == self.shuffle:
             return
@@ -205,6 +234,9 @@ class Player(GObject.Object):
     def shutdown(self) -> None:
         """Stop mpv and wait for it to exit; the player does nothing afterwards."""
         player, self._mpv = self._mpv, None
+        if self._ramp:
+            GLib.source_remove(self._ramp)
+            self._ramp = 0
         if player is not None:
             player.terminate()
 
@@ -263,6 +295,8 @@ class Player(GObject.Object):
         self._mpv.pause = False
         self._entry = self._append(index, "replace")
         self._entries = {self._entry: index}
+        self._entry_eq = {self._entry: self._eq}
+        self._live_eq = self._built_eq = self._eq
         self._seeking = False
         self.state = "playing"
         self._queue_upcoming()
@@ -271,13 +305,52 @@ class Player(GObject.Object):
             self.emit("seeked", 0.0)
 
     def _seek_now(self, seconds: float) -> None:
+        # the seek rebuilds the filters from `af`, so it must hold what plays now; the seek's own reset hides this one
+        if self._built_eq != self._eq:
+            self._mpv.af = eq.chain(self._eq)
+            self._built_eq = self._eq
+        self._live_eq = self._built_eq
         self._mpv.command("seek", seconds, "absolute+exact")
         self._seeking = True
 
     def _append(self, index: int, mode: str) -> int:
-        # raw bytes: a file name need not be valid UTF-8
-        result = self._mpv.command("loadfile", os.fsencode(self.queue[index].path), mode)
-        return result["playlist_entry_id"]
+        # raw bytes: a file name need not be valid UTF-8. A per-file `af` is the song's own; mpv puts the global
+        # value back when the song ends, before the next song's filters are made.
+        result = self._mpv.command("loadfile", os.fsencode(self.queue[index].path), mode, -1,
+                                   f"af=[{eq.chain(self._eq)}]")
+        entry = result["playlist_entry_id"]
+        self._entry_eq[entry] = self._eq
+        return entry
+
+    def _retune(self) -> None:
+        """Move the playing song's filters a step toward self._eq, and schedule the next step.
+
+        Only while playing: steps made in a pause would all land together at the resume. Until mpv has opened the
+        song, its filters do not exist (a command would reach the previous song's), so _loaded() calls this again.
+        """
+        if self._mpv is None or self._opened != self._entry or self.state != "playing":
+            return
+        target = self._eq if self._live_eq is None else self._eq or eq.FLAT  # filters in place stay, at 0 dB
+        if self._live_eq == target:
+            return
+        if self._live_eq is None:
+            self._mpv.af = eq.filters(eq.FLAT)
+            self._live_eq = self._built_eq = eq.FLAT
+        here = self._live_eq
+        step = eq.step(here, target)
+        try:
+            for args in eq.commands(here, step):
+                self._mpv.command("af-command", *args)
+        except SystemError:  # MPV_ERROR_COMMAND: mpv makes a filter when the sound next reaches it; try again then
+            step = here
+        self._live_eq = step
+        if step != target and not self._ramp:
+            self._ramp = GLib.timeout_add(_STEP_MS, self._on_ramp)
+
+    def _on_ramp(self) -> bool:
+        self._ramp = 0
+        self._retune()
+        return GLib.SOURCE_REMOVE
 
     def _queue_upcoming(self) -> None:
         """Make mpv's follow-on entry match what should play next (playlist-clear keeps the playing entry)."""
@@ -345,8 +418,10 @@ class Player(GObject.Object):
         # mpv moved on to the follow-on entry by itself
         index = self._entries[entry]
         self._entries = {e: i for e, i in self._entries.items() if e >= entry}
+        self._entry_eq = {e: gains for e, gains in self._entry_eq.items() if e >= entry}
         restart = self.queue[index] == self.current
         self._entry = entry
+        self._live_eq = self._built_eq = self._entry_eq[entry]
         self._select(index)
         self._seeking = False
         self._queue_upcoming()
@@ -378,6 +453,7 @@ class Player(GObject.Object):
         self._opened = entry
         if entry == self._entry:
             self._failures = 0
+            self._retune()  # the equalizer changed while the song was being opened
             if self._pending_seek is not None:
                 self._seek_now(self._pending_seek)
                 self._pending_seek = None
