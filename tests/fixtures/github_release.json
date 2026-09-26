@@ -1,0 +1,36 @@
+{
+  "url": "https://api.github.com/repos/GGRRK/siphon/releases/397241184",
+  "html_url": "https://github.com/GGRRK/siphon/releases/tag/v0.1.1",
+  "id": 397241184,
+  "tag_name": "v0.1.1",
+  "target_commitish": "master",
+  "name": "Siphon 0.1.1",
+  "draft": false,
+  "immutable": false,
+  "prerelease": false,
+  "created_at": "2026-09-26T13:03:29Z",
+  "published_at": "2026-09-26T13:13:25Z",
+  "assets": [
+    {
+      "url": "https://api.github.com/repos/GGRRK/siphon/releases/assets/590690884",
+      "id": 590690884,
+      "name": "Siphon-0.1.1-Setup.exe",
+      "content_type": "application/octet-stream",
+      "state": "uploaded",
+      "size": 45134960,
+      "digest": "sha256:d37de4741e158838a41c1fe15b4d09c331df69c1cb6f1e42aff8dc8949b9dad0",
+      "browser_download_url": "https://github.com/GGRRK/siphon/releases/download/v0.1.1/Siphon-0.1.1-Setup.exe"
+    },
+    {
+      "url": "https://api.github.com/repos/GGRRK/siphon/releases/assets/590690889",
+      "id": 590690889,
+      "name": "Siphon-0.1.1-Windows-portable.zip",
+      "content_type": "application/zip",
+      "state": "uploaded",
+      "size": 65425563,
+      "digest": "sha256:8bd2bed03ee11d6e5b2f6ade30d59ebb86432898133858f46e89341a9abfa8ed",
+      "browser_download_url": "https://github.com/GGRRK/siphon/releases/download/v0.1.1/Siphon-0.1.1-Windows-portable.zip"
+    }
+  ],
+  "body": "**Playlist links become playlists, and Siphon gets a look of your choosing.** For Windows and Linux.\n\n## New\n- **Paste a playlist, get the playlist.** A Spotify, YouTube, YouTube Music or SoundCloud p"
+}

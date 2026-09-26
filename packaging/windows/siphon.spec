@@ -49,7 +49,7 @@ a = Analysis(
            (str(ROOT / "data" / "io.github.ggrrk.Siphon.svg"), "data"),
            *copy_metadata("yt-dlp"),  # engine.py compares a downloaded engine with the bundled version
            *collect_data_files("yt_dlp_ejs")],  # the YouTube challenge solver's JavaScript
-    hiddenimports=["siphon.cli", "siphon.selftest", "siphon.app"],
+    hiddenimports=["siphon.cli", "siphon.selftest", "siphon.updater", "siphon.app"],
     # yt-dlp as .pyc files beside the rest, not inside the archive each of the two .exe files carries: 7 MB less
     module_collection_mode={"yt_dlp": "pyc"},
     hooksconfig={"gi": {"module-versions": {"Gtk": "4.0", "Gdk": "4.0", "Gsk": "4.0"},

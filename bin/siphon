@@ -11,4 +11,12 @@ if [[ ! -x "$venv/bin/python" ]]; then
 fi
 
 export PYTHONPATH="$repo${PYTHONPATH:+:$PYTHONPATH}"
+# `python -m` puts the current folder first on sys.path, so a siphon folder there (another checkout) would run
+# instead of this one; Python 3.11+ leaves it out with this set, older ones ignore it.
+export PYTHONSAFEPATH=1
+# An update the last run fetched is installed here, before any of Siphon's code loads (siphon/updater.py).
+git_dir="$(git -C "$repo" rev-parse --absolute-git-dir 2>/dev/null)" || git_dir=""
+if [[ -n "$git_dir" && -f "$git_dir/siphon-update" ]]; then
+    "$venv/bin/python" -m siphon.updater apply || true
+fi
 exec "$venv/bin/python" -m siphon "$@"
