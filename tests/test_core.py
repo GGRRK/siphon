@@ -278,6 +278,16 @@ def test_a_playlist_without_a_picture_takes_its_first_songs(monkeypatch):
     assert (found.kind, found.cover_url) == ("album", "https://i1.sndcdn.com/song-1-large.jpg")
 
 
+def test_a_youtube_playlist_without_a_picture_takes_its_first_videos_largest(monkeypatch):
+    entry = {"title": "Song", "url": "https://www.youtube.com/watch?v=abcdefghijk", "ie_key": "Youtube",
+             "thumbnails": [{"url": "https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg", "width": 336, "height": 188}]}
+    monkeypatch.setattr(core, "_ydl", lambda opts: _FakeYdl({"title": "Mix", "extractor_key": "YoutubeTab",
+                                                             "entries": [entry]}))
+    monkeypatch.setattr(core, "_require_js", lambda: None)
+    found = core.resolve("https://www.youtube.com/playlist?list=PLx")
+    assert found.cover_url == "https://i.ytimg.com/vi/abcdefghijk/maxresdefault.jpg"
+
+
 def test_a_single_track_has_no_collection_picture(monkeypatch):
     found = _resolve_info(monkeypatch, {**_entry(1), "webpage_url": "https://soundcloud.com/band/song-1"})
     assert found.kind == "track" and found.cover_url == ""

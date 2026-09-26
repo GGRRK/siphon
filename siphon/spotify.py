@@ -49,6 +49,7 @@ def resolve(url: str) -> Resolved:
     result = from_entity(parse_embed(body.decode("utf-8", "replace")))
     if kind == "track":
         result.tracks[0] = enrich(result.tracks[0])
+    result.link = f"https://open.spotify.com/{kind}/{item}"
     return result
 
 

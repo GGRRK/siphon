@@ -35,7 +35,7 @@ class _Line:
 def _link(found: Resolved, url: str, outdir: Path) -> LinkedPlaylist | None:
     """The playlist a playlist link makes in outdir's Playlists folder, with its picture, as the window does."""
     try:
-        linked = Playlists(outdir / PLAYLISTS_DIR).link(found.title, source_link(url))
+        linked = Playlists(outdir / PLAYLISTS_DIR).link(found.title, source_link(found.link or url))
         picture = cover_image([found.cover_url]) if found.cover_url else None
         if picture:
             linked.set_cover(picture)

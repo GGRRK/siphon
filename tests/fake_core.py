@@ -52,6 +52,7 @@ class Resolved:
     folder: str | None = None
     note: str = ""
     cover_url: str = ""
+    link: str = ""
 
 
 @dataclass

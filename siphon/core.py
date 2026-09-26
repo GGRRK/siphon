@@ -77,6 +77,7 @@ class Resolved:
     folder: str | None  # subfolder for multi-track links, None for a single track
     note: str = ""
     cover_url: str = ""  # an album's or playlist's own picture, largest found; "" for a single track
+    link: str = ""  # where a short link led (spotify.link), so a playlist is recognised however it was pasted
 
 
 @dataclass
@@ -378,11 +379,20 @@ def _resolve_ytdlp(url: str) -> Resolved:
     if kind == "album":
         for n, t in enumerate(tracks, 1):
             t.album, t.track_no = t.album or title, t.track_no or n
-    # YouTube gives a playlist's own square picture (measured 2026-09-26: 240, 480 and 720 px), or for a
-    # playlist without one its first video's thumbnail (up to 336x188, squared to 188).
+    # YouTube gives a playlist's own square picture (measured 2026-09-26: 240, 480 and 720 px); a playlist
+    # without one takes its first video's picture.
     covers = _thumbnails(info)
     return Resolved(title=title, kind=kind, tracks=tracks, folder=safe_name(title),
-                    cover_url=covers[0] if covers else tracks[0].cover_url)
+                    cover_url=covers[0] if covers else _video_picture(tracks[0]))
+
+
+def _video_picture(track: Track) -> str:
+    """A YouTube video's largest thumbnail: a flat playlist entry lists at most 336x188, which squares to a soft
+    188 px, while maxresdefault is 1280x720 (720 px squared, measured 2026-09-26). Other sites: the track's cover."""
+    ids = urllib.parse.parse_qs(urllib.parse.urlsplit(track.url).query).get("v")
+    if _is_youtube(track.url) and ids:
+        return f"https://i.ytimg.com/vi/{ids[0]}/maxresdefault.jpg"
+    return track.cover_url
 
 
 def _resolve_page(url: str, reason: str) -> Resolved:

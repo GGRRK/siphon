@@ -1,6 +1,6 @@
 import pytest
 
-from siphon import spotify
+from siphon import core, spotify
 from siphon.core import SiphonError, page_meta
 
 ID = "4cOdK2wGLETKBW3PvgPWqT"
@@ -94,3 +94,20 @@ def test_track_page_meta(fixture_text):
     meta = page_meta(fixture_text("spotify_track_page.html"))
     assert spotify.album_from_meta(meta) == ("Whenever You Need Somebody", 1)
     assert spotify.album_from_meta({"og:description": "Artist · Song · 2020"}) == ("", None)
+
+
+def test_a_short_link_resolves_to_the_playlist_it_leads_to(monkeypatch, fixture_text):
+    # pasted once as spotify.link and once in full, a playlist must be recognised as the same one
+    full = "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
+
+    def fake_get(url, ua=None, what=""):
+        if url.startswith("https://spotify.link/"):
+            return full + "?si=abc", b""
+        assert url == "https://open.spotify.com/embed/playlist/37i9dQZF1DXcBWIGoYBM5M"
+        return url, fixture_text("spotify_embed_playlist.html").encode()
+
+    monkeypatch.setattr(spotify, "http_get", fake_get)
+    result = spotify.resolve("https://spotify.link/AbCdEf")
+    assert result.kind == "playlist" and result.link == full
+    intl = "https://open.spotify.com/intl-de/playlist/37i9dQZF1DXcBWIGoYBM5M"
+    assert core.source_link(result.link) == core.source_link(intl)

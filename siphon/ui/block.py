@@ -197,7 +197,7 @@ class LinkBlock(Adw.PreferencesGroup):
         # straight into the music folder like single songs (the user's call, 2026-09-25): the group lives on as a
         # playlist, not as a subfolder - at once for a playlist link (2026-09-26), by "Save as Playlist" for an album
         if result.kind == "playlist":
-            self._link()
+            self._link(result.link or self.url)
         if result.cover_url:
             self._fetch_picture(result.cover_url)
         for index, track in enumerate(result.tracks):
@@ -212,9 +212,9 @@ class LinkBlock(Adw.PreferencesGroup):
 
     # -- the playlist a playlist link makes
 
-    def _link(self) -> None:
+    def _link(self, url: str) -> None:
         music = self._host.music
-        link = self._host.core.source_link(self.url)
+        link = self._host.core.source_link(url)
         linked = music.change_playlists(music.playlists.link, self._group_title, link)
         playlist = linked.playlist() if linked is not None else None
         if playlist is None:  # the Playlists folder can't be written: "Save as Playlist" stays the way
