@@ -181,10 +181,16 @@ def chain(gains: Sequence[float] | None) -> str:
 
 
 def filters(gains: Sequence[float]) -> str:
-    """chain() even when flat: then every filter is at 0 dB, which passes the sound through exactly."""
-    bands = [f"@eq{i}:equalizer=f={hz}:t=o:w=1:g={db:g}" for i, (hz, db) in enumerate(zip(FREQUENCIES, gains))]
-    return ",".join([f"@{FILTERS[0]}:aformat=sample_rates={_RATES_IN}",
-                     f"@{PREAMP}:volume=volume={headroom(gains):g}dB", *bands])
+    """chain() even when flat: then every filter is at 0 dB, which passes the sound through exactly.
+
+    mpv runs each filter in an ffmpeg graph of its own, and ffmpeg gives every graph a pool of threads, one per core
+    up to 16, to which the band filters hand each block's two channels. So each graph here is held to one thread:
+    the same samples bit for bit, but on a 24-core computer 12 threads instead of 192, about 110 wakeups a second
+    instead of 890, and half the CPU time (Rock on a 44.1 kHz MP3, measured 2026-09-26, mpv 0.41, ffmpeg 9).
+    """
+    bands = [(f"eq{i}", f"equalizer=f={hz}:t=o:w=1:g={db:g}") for i, (hz, db) in enumerate(zip(FREQUENCIES, gains))]
+    return ",".join(f"@{label}:lavfi=graph=[{spec}]:o=[threads=1]" for label, spec in (
+        (FILTERS[0], f"aformat=sample_rates={_RATES_IN}"), (PREAMP, f"volume=volume={headroom(gains):g}dB"), *bands))
 
 
 def step(here: Sequence[float], target: Sequence[float]) -> tuple[float, ...]:

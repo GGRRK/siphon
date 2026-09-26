@@ -1,6 +1,7 @@
 import json
 import math
 import random
+import re
 
 import pytest
 
@@ -206,21 +207,29 @@ def test_off_or_flat_is_no_filter_at_all():
     assert eq.chain([0] * 10) == ""
 
 
+def graphs(chain: str) -> list[tuple[str, str]]:
+    """(label, ffmpeg filter) of each filter in a chain, checking each one runs in a one-thread graph of its own."""
+    found = re.findall(r"@(\w+):lavfi=graph=\[([^]]*)\]:o=\[threads=1\](?:,|$)", chain)
+    assert ",".join(f"@{label}:lavfi=graph=[{spec}]:o=[threads=1]" for label, spec in found) == chain
+    return found
+
+
 def test_the_chain_is_a_preamp_then_ten_octave_wide_peaking_filters():
-    assert eq.chain(ROCK) == (
-        "@rate:aformat=sample_rates=44100|48000|88200|96000|176400|192000|352800|384000,"
-        "@preamp:volume=volume=-7.8dB,"
-        "@eq0:equalizer=f=31:t=o:w=1:g=5,@eq1:equalizer=f=62:t=o:w=1:g=4,@eq2:equalizer=f=125:t=o:w=1:g=2,"
-        "@eq3:equalizer=f=250:t=o:w=1:g=-1,@eq4:equalizer=f=500:t=o:w=1:g=-2,@eq5:equalizer=f=1000:t=o:w=1:g=-1,"
-        "@eq6:equalizer=f=2000:t=o:w=1:g=2,@eq7:equalizer=f=4000:t=o:w=1:g=4,@eq8:equalizer=f=8000:t=o:w=1:g=5,"
-        "@eq9:equalizer=f=16000:t=o:w=1:g=5")
+    assert graphs(eq.chain(ROCK)) == [
+        ("rate", "aformat=sample_rates=44100|48000|88200|96000|176400|192000|352800|384000"),
+        ("preamp", "volume=volume=-7.8dB"),
+        ("eq0", "equalizer=f=31:t=o:w=1:g=5"), ("eq1", "equalizer=f=62:t=o:w=1:g=4"),
+        ("eq2", "equalizer=f=125:t=o:w=1:g=2"), ("eq3", "equalizer=f=250:t=o:w=1:g=-1"),
+        ("eq4", "equalizer=f=500:t=o:w=1:g=-2"), ("eq5", "equalizer=f=1000:t=o:w=1:g=-1"),
+        ("eq6", "equalizer=f=2000:t=o:w=1:g=2"), ("eq7", "equalizer=f=4000:t=o:w=1:g=4"),
+        ("eq8", "equalizer=f=8000:t=o:w=1:g=5"), ("eq9", "equalizer=f=16000:t=o:w=1:g=5")]
 
 
 def test_a_single_band_keeps_all_ten_filters_so_any_slider_can_move_live():
     gains = (0, 0, 0, 0, 0, 0, 0, 0, 0, -3.5)
-    assert eq.chain(gains).split(",", 1)[1] == ("@preamp:volume=volume=0dB," + ",".join(
-        f"@eq{i}:equalizer=f={hz}:t=o:w=1:g=0" for i, hz in enumerate(eq.FREQUENCIES[:9]))
-        + ",@eq9:equalizer=f=16000:t=o:w=1:g=-3.5")
+    assert graphs(eq.chain(gains))[1:] == [("preamp", "volume=volume=0dB")] + [
+        (f"eq{i}", f"equalizer=f={hz}:t=o:w=1:g=0") for i, hz in enumerate(eq.FREQUENCIES[:9])] + [
+        ("eq9", "equalizer=f=16000:t=o:w=1:g=-3.5")]
 
 
 def test_commands_change_only_what_moved_and_turn_down_before_boosting():

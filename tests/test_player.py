@@ -328,7 +328,11 @@ def kept_time(seen: Recorder) -> bool:
 
 def filters(player: Player) -> dict[str, str]:
     """The playing song's filters, as mpv built them: label -> gain (the preamp's volume)."""
-    return {f["label"]: f["params"].get("g", f["params"].get("volume")) for f in player._mpv.af}
+    built = {}
+    for f in player._mpv.af:  # each an ffmpeg graph of one filter: "equalizer=f=31:t=o:w=1:g=5"
+        params = dict(p.split("=", 1) for p in f["params"]["graph"].split("=", 1)[1].split(":"))
+        built[f["label"]] = params.get("g", params.get("volume"))
+    return built
 
 
 def test_no_equalizer_or_a_flat_one_runs_no_filter(player, tones):
@@ -395,6 +399,19 @@ def test_switching_off_mid_song_zeroes_the_filters_and_the_next_seek_drops_them(
     player.seek(5.0)
     run_until(lambda: player.position >= 5.0)
     assert player._mpv.af == []
+
+
+@pytest.mark.linux
+def test_the_equalizer_starts_no_threads(player, tones):
+    """ffmpeg would give each filter's graph a pool of threads, one per core up to 16; each is held to one."""
+    def threads_while_playing(gains) -> int:
+        player.set_equalizer(gains)
+        player.play_songs([tones["long"]])
+        run_until(lambda: player.position > 0.5)
+        return len(os.listdir("/proc/self/task"))
+
+    plain = threads_while_playing(None)
+    assert threads_while_playing(ROCK) <= plain + 2
 
 
 def test_switching_on_mid_song_puts_the_filters_in_at_0_db_then_moves_them(player, tones):
