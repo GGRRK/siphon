@@ -70,7 +70,8 @@ def test_save_uses_xdg_config_home(monkeypatch, tmp_path):
     settings.save(Settings("m4a", tmp_path / "x"))
     assert json.loads((tmp_path / "siphon" / "settings.json").read_text()) == {
         "format": "m4a", "folder": str(tmp_path / "x"), "volume": 0.8, "shuffle": False,
-        "repeat": "off", "sort": "added", "page": "download", "style": "system", "accent": "system"}
+        "repeat": "off", "sort": "added", "page": "download", "style": "system", "accent": "system",
+        "auto_update": True, "auto_engine": True}
 
 
 def test_failed_write_keeps_old_file_and_cleans_up(monkeypatch, tmp_path, defaults):
@@ -94,12 +95,13 @@ def test_file_from_before_the_player_loads_with_new_defaults(tmp_path, defaults)
     assert loaded == Settings("opus", Path("/srv/audio"))
     assert (loaded.volume, loaded.shuffle, loaded.repeat, loaded.sort, loaded.page) == (0.8, False, "off", "added", "download")
     assert (loaded.style, loaded.accent) == ("system", "system")
+    assert (loaded.auto_update, loaded.auto_engine) == (True, True)
 
 
 def test_player_and_view_state_round_trip(tmp_path, defaults):
     path = tmp_path / "settings.json"
     chosen = Settings("mp3", tmp_path, volume=0.35, shuffle=True, repeat="one", sort="artist", page="playlists",
-                      style="dark", accent="purple")
+                      style="dark", accent="purple", auto_update=False, auto_engine=False)
     settings.save(chosen, path)
     assert settings.load(defaults, FORMATS, path) == chosen
 
@@ -112,6 +114,8 @@ def test_player_and_view_state_round_trip(tmp_path, defaults):
     ("page", "settings"), ("page", None),
     ("style", "Dark"), ("style", "auto"), ("style", 1), ("style", None), ("style", ["dark"]),
     ("accent", "Purple"), ("accent", "#9141ac"), ("accent", "magenta"), ("accent", 0), ("accent", False),
+    ("auto_update", "false"), ("auto_update", 0), ("auto_update", None), ("auto_update", "no"),
+    ("auto_engine", "true"), ("auto_engine", 1), ("auto_engine", []), ("auto_engine", {}),
 ])
 def test_bad_new_values_fall_back_alone(tmp_path, defaults, key, value):
     path = tmp_path / "settings.json"
@@ -141,3 +145,12 @@ def test_every_style_and_accent_round_trips(tmp_path, defaults, style, accent):
     settings.save(Settings("opus", tmp_path, style=style, accent=accent), path)
     loaded = settings.load(defaults, FORMATS, path)
     assert (loaded.style, loaded.accent) == (style, accent)
+
+
+@pytest.mark.parametrize("auto_update", [True, False])
+@pytest.mark.parametrize("auto_engine", [True, False])
+def test_update_switches_round_trip(tmp_path, defaults, auto_update, auto_engine):
+    path = tmp_path / "settings.json"
+    settings.save(Settings("opus", tmp_path, auto_update=auto_update, auto_engine=auto_engine), path)
+    loaded = settings.load(defaults, FORMATS, path)
+    assert (loaded.auto_update, loaded.auto_engine) == (auto_update, auto_engine)

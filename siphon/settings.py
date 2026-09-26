@@ -1,4 +1,5 @@
-"""The app's remembered choices: download format and folder, player state, library sort, last page, appearance.
+"""The app's remembered choices: download format and folder, player state, library sort, last page, appearance,
+and whether Siphon and its download engine update themselves.
 
 Stored as JSON in $XDG_CONFIG_HOME/siphon/settings.json (~/.config by
 default; %APPDATA%\\Siphon on Windows). A missing or damaged file silently falls back to the defaults,
@@ -33,6 +34,8 @@ class Settings:
     page: str = "download"
     style: str = "system"
     accent: str = "system"
+    auto_update: bool = True  # Siphon checks GitHub at every start and gets a new release ready
+    auto_engine: bool = True  # the same for yt-dlp, from PyPI
 
 
 def config_path() -> Path:
@@ -59,18 +62,23 @@ def load(defaults: Settings, formats: tuple[str, ...], path: Path | None = None)
         value = data.get(key)
         return value if value in allowed else getattr(defaults, key)
 
+    def flag(key: str) -> bool:
+        value = data.get(key)
+        return value if isinstance(value, bool) else getattr(defaults, key)
+
     folder = data.get("folder")
-    shuffle = data.get("shuffle")
     return Settings(
         format=choice("format", formats),
         folder=Path(folder).expanduser() if isinstance(folder, str) and folder.strip() else defaults.folder,
         volume=_volume(data.get("volume"), defaults.volume),
-        shuffle=shuffle if isinstance(shuffle, bool) else defaults.shuffle,
+        shuffle=flag("shuffle"),
         repeat=choice("repeat", REPEAT_MODES),
         sort=choice("sort", SORTS),
         page=choice("page", PAGES),
         style=choice("style", STYLES),
         accent=choice("accent", ACCENTS),
+        auto_update=flag("auto_update"),
+        auto_engine=flag("auto_engine"),
     )
 
 
