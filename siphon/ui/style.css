@@ -39,6 +39,26 @@
   min-height: 42px;
 }
 
+/* The equalizer's bands, and the readout that floats over the one being moved. */
+
+.equalizer {
+  padding: 12px 6px;
+}
+
+/* A 0 dB mark on both sides of every band draws one dashed line across them. libadwaita rounds the slider again
+   for marks on both sides of a horizontal scale only (1.9); a vertical one kept two square corners, a leaf. */
+.equalizer scale.vertical.marks-before.marks-after > trough > slider {
+  border-radius: 100%;
+}
+
+.equalizer .band-value {
+  padding: 0 6px;
+  border-radius: 6px;
+  background-color: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+  transition: opacity 150ms;
+}
+
 /* The Appearance page's round choices, drawn like GNOME Text Editor's style switcher. The style swatches
    picture light and dark, so they alone keep fixed colours: libadwaita's light and dark window backgrounds. */
 

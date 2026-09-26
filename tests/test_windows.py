@@ -461,7 +461,8 @@ def test_every_icon_the_window_names_ships_with_adwaita():
         pytest.skip("no Adwaita icon theme here")
     source = "".join(path.read_text(encoding="utf-8") for path in (ROOT / "siphon" / "ui").glob("*.py"))
     named = set(re.findall(r'icon_name="([a-z-]+)"', source))
-    assert {"preferences-desktop-appearance-symbolic", "software-update-available-symbolic"} <= named
+    assert {"preferences-desktop-appearance-symbolic", "audio-speakers-symbolic",
+            "software-update-available-symbolic"} <= named
     assert named <= shipped, named - shipped
 
 

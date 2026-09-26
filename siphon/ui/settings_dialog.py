@@ -1,4 +1,4 @@
-"""The Settings dialog behind the header bar's cog (Ctrl+,): Appearance and Updates.
+"""The Settings dialog behind the header bar's cog (Ctrl+,): Appearance, Equalizer and Updates.
 
 Each control saves through the app's own settings save; the Updates page follows app.updates while it is open.
 """
@@ -6,6 +6,7 @@ Each control saves through the app's own settings save; the Updates page follows
 from gi.repository import Adw, Gtk
 
 from . import appearance
+from .equalizer import EqualizerPage
 from .updates import Updates
 
 # what sits at the end of the Siphon row in each state; "check" (the Check Now button) in any other
@@ -35,6 +36,7 @@ class SettingsDialog(Adw.PreferencesDialog):
     def __init__(self, app: Adw.Application, window: Gtk.Window, page: str) -> None:
         super().__init__(title="Settings")
         self.add(_appearance_page())
+        self.add(EqualizerPage(app))
         self._updates = UpdatesPage(app, window)
         self.add(self._updates)
         self.set_visible_page_name(page)

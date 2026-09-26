@@ -1,10 +1,63 @@
-"""The Settings dialog's logic that needs no display: the Updates page's lines."""
+"""The Settings dialog's logic that needs no display: the equalizer page's words and lists, the Updates page's lines."""
 
 from types import SimpleNamespace
 
 import pytest
 
-from siphon.ui import settings_dialog
+from siphon import eq
+from siphon.ui import equalizer, settings_dialog
+
+
+@pytest.mark.parametrize("hz, name", [(31, "31 Hz"), (500, "500 Hz"), (1000, "1 kHz"), (16000, "16 kHz")])
+def test_band_names_for_screen_readers(hz, name):
+    assert equalizer.band_name(hz) == name
+
+
+def test_every_band_has_a_name_and_a_caption():
+    assert [equalizer.band_name(hz) for hz in eq.FREQUENCIES] == [
+        "31 Hz", "62 Hz", "125 Hz", "250 Hz", "500 Hz", "1 kHz", "2 kHz", "4 kHz", "8 kHz", "16 kHz"]
+    assert len(eq.LABELS) == len(eq.FREQUENCIES)
+
+
+@pytest.mark.parametrize("db, text", [(0.0, "0 dB"), (-0.0, "0 dB"), (3.5, "+3.5 dB"), (-12.0, "-12 dB"),
+                                      (12.0, "+12 dB"), (-0.5, "-0.5 dB")])
+def test_decibels(db, text):
+    assert equalizer.decibels(db) == text
+
+
+def test_preset_names_built_in_first_then_yours():
+    equal = eq.Equalizer()
+    equal.apply("Rock")
+    equal.save("Mine")
+    assert equalizer.preset_names(equal) == [*eq.BUILT_IN, "Mine"]
+
+
+def test_custom_is_listed_last_only_while_the_curve_is_no_preset():
+    equal = eq.Equalizer()
+    equal.save("Mine")
+    equal.set_band(0, 7.5)
+    assert equal.preset == eq.CUSTOM
+    assert equalizer.preset_names(equal) == [*eq.BUILT_IN, "Mine", eq.CUSTOM]
+    equal.set_band(0, 0.0)  # back on Flat's curve
+    assert equalizer.preset_names(equal) == [*eq.BUILT_IN, "Mine"]
+
+
+def test_the_current_preset_is_always_in_the_list():
+    equal = eq.Equalizer()
+    for step in (lambda: equal.apply("Jazz"), lambda: equal.set_band(3, -4.0), lambda: equal.save("Late"),
+                 lambda: equal.delete("Late"), lambda: equal.apply("Flat")):
+        step()
+        assert equal.preset in equalizer.preset_names(equal)
+
+
+@pytest.mark.parametrize("name, problem", [
+    ("Warm", ""),
+    ("rock", "“rock” is a built-in name; choose another."),
+    ("custom", "“custom” is a built-in name; choose another."),
+    ("x" * 41, "A preset name can have at most 40 characters."),
+])
+def test_name_problems(name, problem):
+    assert equalizer.name_problem(name) == problem
 
 
 def _updates(**fields) -> SimpleNamespace:
