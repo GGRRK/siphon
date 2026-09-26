@@ -215,3 +215,221 @@ def test_labels_come_from_tags_without_a_lookup(tmp_path, root):
     lists.add(pl, [path, root / "Alpha - One.mp3"])
     assert body(pl)[2:] == ["#EXTINF:2,Tagger - Tagged", rel("../tagged.opus"),
                             "#EXTINF:-1,Alpha - One", rel("../Alpha - One.mp3")]
+
+
+# ---------------------------------------------------------------- pictures and sources
+
+JPEG = b"\xff\xd8\xff\xe0" + b"jpeg" * 8
+PNG = b"\x89PNG\r\n\x1a\n" + b"png" * 8
+LINK = "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
+
+
+def files_in(folder: Path) -> list[str]:
+    return sorted(f.name for f in folder.iterdir())
+
+
+def test_picture_and_source_are_written_and_read_back(root, lists):
+    pl = lists.create("Road Trip", source=LINK)
+    lists.add(pl, [root / "Alpha - One.mp3"])
+    assert lists.set_cover(pl, JPEG)
+    assert pl.cover == root / "Playlists" / "Road Trip.jpg" and pl.cover.read_bytes() == JPEG
+    assert body(pl) == ["#EXTM3U", "#PLAYLIST:Road Trip", "#EXTIMG:Road Trip.jpg", f"#SIPHON-SOURCE:{LINK}",
+                        "#EXTINF:61,Alpha - One", rel("../Alpha - One.mp3")]
+    (again,) = Playlists(root / "Playlists").all()
+    assert (again.cover, again.source, again.paths) == (pl.cover, LINK, pl.paths)
+
+
+def test_the_picture_extension_follows_its_content(root, lists):
+    pl = lists.create("Mix")
+    assert lists.set_cover(pl, JPEG)
+    assert lists.set_cover(pl, PNG)  # replaced by a PNG: the old JPEG goes
+    assert files_in(root / "Playlists") == ["Mix.m3u8", "Mix.png"]
+    assert not lists.set_cover(pl, b"<html>not an image</html>")
+    assert pl.cover.name == "Mix.png" and files_in(root / "Playlists") == ["Mix.m3u8", "Mix.png"]
+
+
+def test_an_unrelated_image_is_never_overwritten(root, lists):
+    folder = root / "Playlists"
+    folder.mkdir()
+    (folder / "Mix.jpg").write_bytes(b"the user's own")
+    pl = lists.create("Mix")
+    assert lists.set_cover(pl, JPEG)
+    assert pl.cover.name == "Mix (2).jpg"
+    assert lists.set_cover(pl, JPEG + b"new")  # a refresh reuses the playlist's own name
+    assert (folder / "Mix (2).jpg").read_bytes() == JPEG + b"new"
+    assert (folder / "Mix.jpg").read_bytes() == b"the user's own"
+    assert files_in(folder) == ["Mix (2).jpg", "Mix.jpg", "Mix.m3u8"]
+
+
+def test_playlists_without_a_picture_or_source_keep_working(root, lists):
+    folder = root / "Playlists"
+    folder.mkdir()
+    (folder / "Plain.m3u8").write_text("#EXTM3U\n../Alpha - One.mp3\n")
+    (folder / "Empty tag.m3u8").write_text("#EXTM3U\n#EXTIMG:\n#EXTIMG:https://example.com/a.jpg\n")
+    by_name = {p.name: p for p in lists.all()}
+    assert (by_name["Plain"].cover, by_name["Plain"].source) == (None, "")
+    assert by_name["Empty tag"].cover is None  # a web address is no file
+    lists.add(by_name["Plain"], [])
+    assert body(by_name["Plain"])[:2] == ["#EXTM3U", "#PLAYLIST:Plain"]
+
+
+def test_pictures_other_players_named_are_read_and_left_where_they_are(tmp_path, root, lists, monkeypatch):
+    folder = root / "Playlists"
+    folder.mkdir()
+    art = root / "Art" / "cover.png"
+    art.parent.mkdir()
+    art.write_bytes(PNG)
+    (folder / "Theirs.m3u8").write_text("#EXTM3U\n#EXTIMG:../Art/cover.png\n")
+    (folder / "Absolute.m3u8").write_text(f"#EXTM3U\n#EXTIMG:{art}\n")
+    by_name = {p.name: p for p in lists.all()}
+    assert by_name["Theirs"].cover == art and by_name["Absolute"].cover == art
+    lists.rename(by_name["Theirs"], "Renamed")
+    assert body(by_name["Theirs"])[2] == rel("#EXTIMG:../Art/cover.png")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    monkeypatch.setattr(playlists_mod, "trash_file", lambda p: p.rename(bin_dir / p.name))
+    lists.delete(by_name["Theirs"])
+    assert art.read_bytes() == PNG and files_in(bin_dir) == ["Renamed.m3u8"]
+
+
+def test_rename_carries_the_picture(root, lists):
+    pl = lists.create("Old", source=LINK)
+    lists.set_cover(pl, JPEG)
+    lists.rename(pl, "Fresh")
+    assert files_in(root / "Playlists") == ["Fresh.jpg", "Fresh.m3u8"]
+    assert body(pl)[2:4] == ["#EXTIMG:Fresh.jpg", f"#SIPHON-SOURCE:{LINK}"]
+    (again,) = lists.all()
+    assert again.cover.read_bytes() == JPEG
+
+
+def test_rename_never_overwrites_an_unrelated_image(root, lists):
+    pl = lists.create("Old")
+    lists.set_cover(pl, JPEG)
+    (root / "Playlists" / "Fresh.jpg").write_bytes(b"someone else's")
+    lists.rename(pl, "Fresh")
+    assert pl.cover.name == "Fresh (2).jpg" and pl.cover.read_bytes() == JPEG
+    assert (root / "Playlists" / "Fresh.jpg").read_bytes() == b"someone else's"
+    assert not (root / "Playlists" / "Old.jpg").exists()
+
+
+def test_delete_trashes_the_picture_too(root, lists, tmp_path, monkeypatch):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    monkeypatch.setattr(playlists_mod, "trash_file", lambda p: p.rename(bin_dir / p.name))
+    pl = lists.create("Doomed")
+    lists.set_cover(pl, PNG)
+    lists.delete(pl)
+    assert files_in(root / "Playlists") == []
+    assert files_in(bin_dir) == ["Doomed.m3u8", "Doomed.png"]
+
+
+# ---------------------------------------------------------------- playlists made from links
+
+
+@pytest.fixture
+def songs(root) -> list[Path]:
+    """Six downloaded songs, in the source playlist's order."""
+    paths = [root / f"Artist - Song {n}.opus" for n in range(6)]
+    for path in paths:
+        path.write_bytes(b"x")
+    return paths
+
+
+def order(lists: Playlists, songs: list[Path]) -> list[int | str]:
+    """The playlist's entries as source positions (a song not from the source by name)."""
+    (pl,) = lists.all()
+    return [songs.index(p) if p in songs else p.name for p in pl.paths]
+
+
+def test_songs_land_in_the_source_order_whichever_finishes_first(root, lists, songs):
+    linked = lists.link("Top Hits", LINK)
+    assert linked.created
+    for n in (3, 1, 5, 0):  # two download at once: finishes come in any order; 2 and 4 failed
+        assert linked.add({n: songs[n]})
+    assert order(lists, songs) == [0, 1, 3, 5]
+    linked.add({4: songs[4]})  # retried and done
+    linked.add({2: songs[2]})
+    assert order(lists, songs) == [0, 1, 2, 3, 4, 5]
+
+
+def test_a_batch_of_finished_songs_lands_in_order(root, lists, songs):
+    linked = lists.link("Top Hits", LINK)
+    linked.add({5: songs[5], 0: songs[0], 3: songs[3]})
+    assert order(lists, songs) == [0, 3, 5]
+
+
+def test_the_users_edits_meanwhile_stay(root, lists, songs):
+    linked = lists.link("Top Hits", LINK)
+    linked.add({0: songs[0], 1: songs[1], 2: songs[2], 4: songs[4]})
+    (pl,) = lists.all()
+    lists.remove(pl, 1)  # song 1 is not wanted
+    lists.move(pl, 2, 0)  # song 4 first
+    lists.add(pl, [root / "Alpha - One.mp3"])  # and one of the user's own
+    lists.rename(pl, "Mine")
+    linked.add({3: songs[3], 5: songs[5]})
+    assert order(lists, songs) == [4, 5, 0, 2, 3, "Alpha - One.mp3"]  # 3 after 2, 5 after 4; 1 stays out
+    assert lists.all()[0].name == "Mine"
+
+
+def test_a_deleted_playlist_is_never_brought_back(root, lists, songs, monkeypatch):
+    monkeypatch.setattr(playlists_mod, "trash_file", lambda p: p.unlink())
+    linked = lists.link("Top Hits", LINK)
+    linked.add({0: songs[0]})
+    lists.delete(lists.all()[0])
+    assert not linked.add({1: songs[1]})
+    assert linked.gone and linked.playlist() is None
+    lists.link("Top Hits", LINK)  # pasted again: a new playlist, which the old paste leaves alone
+    assert not linked.add({2: songs[2]}) and not linked.set_cover(JPEG)
+    assert order(lists, songs) == []
+
+
+def test_a_playlist_another_player_saved_without_its_source_is_still_filled(root, lists, songs):
+    linked = lists.link("Top Hits", LINK)
+    linked.add({1: songs[1]})
+    (pl,) = lists.all()
+    pl.file.write_text("#EXTM3U\n../Artist - Song 1.opus\n")  # rewritten by a player that drops unknown lines
+    linked.add({0: songs[0]})
+    assert order(lists, songs) == [0, 1]
+
+
+def test_songs_the_source_lists_twice_are_kept_twice(root, lists, songs):
+    a, b = songs[0], songs[1]
+    for finishes in ([0, 1, 2], [2, 0, 1], [1, 2, 0]):  # source: a, b, a
+        for pl in lists.all():
+            pl.file.unlink()
+        linked = lists.link("Twice", LINK)
+        for n in finishes:
+            linked.add({n: [a, b, a][n]})
+        assert lists.all()[0].paths == [a, b, a], finishes
+
+
+def test_pasting_the_link_again_reuses_the_playlist(root, lists, songs):
+    first = lists.link("Top Hits", LINK)
+    first.add({0: songs[0], 1: songs[1], 2: songs[2]})
+    (pl,) = lists.all()
+    lists.move(pl, 0, 2)  # the user's order: 1, 2, 0
+    lists.set_cover(pl, JPEG)
+    again = lists.link("Top Hits (renamed at the source)", LINK)
+    assert not again.created
+    # Everything reports again ("already downloaded"), plus a song the source gained since.
+    again.add({0: songs[0], 1: songs[1], 2: songs[2], 3: songs[3]})
+    assert order(lists, songs) == [1, 2, 3, 0]
+    assert again.set_cover(PNG)
+    assert [p.name for p in lists.all()] == ["Top Hits"]
+    assert files_in(root / "Playlists") == ["Top Hits.m3u8", "Top Hits.png"]
+
+
+def test_the_same_playlist_in_another_link_form_is_recognised(root, lists):
+    from siphon.core import source_link
+
+    first = lists.link("Top Hits", source_link(LINK + "?si=abc123"))
+    again = lists.link("Top Hits", source_link("spotify:playlist:37i9dQZF1DXcBWIGoYBM5M"))
+    other = lists.link("Top Hits", source_link("https://www.youtube.com/playlist?list=PLaklDK5Yxuss"))
+    assert first.created and not again.created and other.created
+    assert [p.name for p in lists.all()] == ["Top Hits", "Top Hits 2"]
+    assert lists.all()[0].source == LINK
+
+
+def test_an_empty_source_matches_nothing(root, lists):
+    lists.create("Hand made")
+    assert lists.link("Hand made", "").created

@@ -272,6 +272,32 @@ def test_windows_playlists_are_written_with_backslashes(win, music, monkeypatch)
     assert Playlists(music / "Playlists").all()[0].paths == [music / "Sub" / "Beta - Two.opus"]
 
 
+def test_windows_playlist_pictures_are_named_with_backslashes(win, music, monkeypatch):
+    art = music / "Sub" / "cover.jpg"
+    art.write_bytes(b"\xff\xd8\xff" + b"x" * 8)
+    lists = Playlists(music / "Playlists")
+    pl = lists.create("Mix", source="https://www.youtube.com/playlist?list=PLx")
+    pl.cover = art  # a picture another player chose
+    lists.add(pl, [])
+    assert pl.file.read_text(encoding="utf-8").splitlines()[2:4] == [
+        r"#EXTIMG:..\Sub\cover.jpg", "#SIPHON-SOURCE:https://www.youtube.com/playlist?list=PLx"]
+    monkeypatch.setattr(sys, "platform", "linux")  # the same music folder, read from Linux
+    assert Playlists(music / "Playlists").all()[0].cover == art
+
+
+def test_windows_picture_names_stay_under_max_path(win, tmp_path):
+    lists = Playlists(tmp_path / "Playlists")
+    lists.folder.mkdir()
+    stem = "x" * (names.room(lists.folder) - len(".m3u8") - 14)  # the longest name a playlist gets
+    pl = lists.create(stem)
+    assert pl.file.stem == stem
+    (lists.folder / f"{stem}.jpg").write_bytes(b"unrelated")
+    assert not lists.set_cover(pl, b"\xff\xd8\xff" + b"x" * 8)  # "... (2).jpg" would not fit: no picture
+    assert pl.cover is None and (lists.folder / f"{stem}.jpg").read_bytes() == b"unrelated"
+    (lists.folder / f"{stem}.jpg").unlink()
+    assert lists.set_cover(pl, b"\xff\xd8\xff" + b"x" * 8) and pl.cover.name == f"{stem}.jpg"
+
+
 @pytest.mark.linux
 def test_linux_keeps_real_backslashes_in_names(music):
     odd = music / "back\\slash.mp3"

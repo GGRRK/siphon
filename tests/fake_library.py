@@ -116,6 +116,8 @@ class Playlist:
     name: str
     file: Path
     paths: list[Path]
+    cover: Path | None = None
+    source: str = ""
 
 
 class Playlists:
@@ -144,11 +146,17 @@ class Playlists:
             candidate, n = f"{name} {n}", n + 1
         return candidate
 
-    def create(self, name: str) -> Playlist:
+    def create(self, name: str, source: str = "") -> Playlist:
         name = self._unique(name.strip() or "Playlist")
-        pl = Playlist(name, self.folder / f"{name}.m3u8", [])
+        pl = Playlist(name, self.folder / f"{name}.m3u8", [], source=source)
         self._lists.append(pl)
         return pl
+
+    def link(self, name: str, source: str):
+        from siphon.playlists import LinkedPlaylist  # the real ordering, over these in-memory playlists
+
+        found = next((pl for pl in self._lists if pl.source == source), None)
+        return LinkedPlaylist(self, found or self.create(name, source), created=found is None)
 
     def rename(self, pl: Playlist, name: str) -> None:
         pl.name = self._unique(name.strip() or pl.name, skip=pl)
@@ -159,6 +167,17 @@ class Playlists:
 
     def add(self, pl: Playlist, paths: list[Path]) -> None:
         pl.paths.extend(paths)
+
+    def insert(self, pl: Playlist, index: int, paths: list[Path]) -> None:
+        pl.paths[index:index] = paths
+
+    def set_cover(self, pl: Playlist, data: bytes) -> bool:
+        """Pictures go to the cache folder the generated covers use: nothing is written beside the music."""
+        base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "siphon-fake-covers"
+        base.mkdir(parents=True, exist_ok=True)
+        pl.cover = base / f"playlist-{_digest(pl.source or pl.name)}.png"
+        pl.cover.write_bytes(data)
+        return True
 
     def remove(self, pl: Playlist, index: int) -> None:
         del pl.paths[index]

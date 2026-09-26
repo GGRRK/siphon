@@ -43,7 +43,7 @@ def cover_file(path: Path) -> Path | None:
         data = _embedded(path)
     except Exception:  # damaged tags raise all kinds of errors: treat them as no cover
         data = None
-    ext = _image_ext(data) if data else None
+    ext = image_ext(data) if data else None
     try:
         if ext is None:
             write_atomic(none_marker, b"")
@@ -81,7 +81,7 @@ def _pick(pictures: list[tuple[int, bytes]]) -> bytes | None:
     return pictures[0][1] if pictures else None
 
 
-def _image_ext(data: bytes) -> str | None:
+def image_ext(data: bytes) -> str | None:
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "png"
     if data.startswith(b"\xff\xd8\xff"):
