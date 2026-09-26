@@ -1,4 +1,5 @@
-"""The app's remembered choices: download format and folder, player state, library sort, last page, appearance.
+"""The app's remembered choices: download format and folder, player state, library sort, last page, appearance and
+the equalizer.
 
 Stored as JSON in $XDG_CONFIG_HOME/siphon/settings.json (~/.config by
 default; %APPDATA%\\Siphon on Windows). A missing or damaged file silently falls back to the defaults,
@@ -9,10 +10,10 @@ import json
 import math
 import os
 import tempfile
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from . import paths
+from . import eq, paths
 
 REPEAT_MODES = ("off", "all", "one")
 SORTS = ("added", "title", "artist")
@@ -33,6 +34,9 @@ class Settings:
     page: str = "download"
     style: str = "system"
     accent: str = "system"
+    # in this file rather than one of its own: a slider drag saves many times a second, and the app already
+    # collects those into one atomic write of this file
+    equalizer: eq.Equalizer = field(default_factory=eq.Equalizer)
 
 
 def config_path() -> Path:
@@ -71,6 +75,7 @@ def load(defaults: Settings, formats: tuple[str, ...], path: Path | None = None)
         page=choice("page", PAGES),
         style=choice("style", STYLES),
         accent=choice("accent", ACCENTS),
+        equalizer=eq.from_json(data.get("equalizer"), defaults.equalizer),
     )
 
 
