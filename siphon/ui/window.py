@@ -22,18 +22,41 @@ _STOP_TIMEOUT = 10.0  # seconds to wait for cancelled downloads before closing a
 _NARROW = "max-width: 560sp"
 
 
+def main_menu() -> Gio.Menu:
+    """The header bar's three-dot menu."""
+    menu = Gio.Menu()
+    main = Gio.Menu()
+    main.append("Open Music Folder", "win.open-folder")
+    main.append("Refresh Library", "win.refresh-library")
+    main.append("Update Engine", "app.update-engine")
+    menu.append_section(None, main)
+    about = Gio.Menu()
+    about.append("About Siphon", "app.about")
+    about.append("Quit", "app.quit")  # closing the window may only hide it in the tray
+    menu.append_section(None, about)
+    return menu
+
+
 class SiphonWindow(Adw.ApplicationWindow):
-    # Closing was called off to keep downloads running (a restart to update waits for the next time).
-    __gsignals__ = {"close-cancelled": (GObject.SignalFlags.RUN_FIRST, None, ())}
+    __gsignals__ = {
+        # Quitting was called off to keep downloads running (a restart to update waits for the next time).
+        "close-cancelled": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        # Closed to the tray: Siphon keeps running.
+        "hidden": (GObject.SignalFlags.RUN_FIRST, None, ()),
+    }
 
     def __init__(self, app: Adw.Application, core: ModuleType, prefs: settings.Settings,
-                 save_prefs: Callable[[], None], music: Music) -> None:
+                 save_prefs: Callable[[], None], music: Music,
+                 hide_on_close: Callable[[], bool] = lambda: False) -> None:
+        """hide_on_close says, at each close, whether closing hides the window in the tray instead of quitting."""
         super().__init__(application=app, title="Siphon", default_width=820, default_height=1080)
         self.set_size_request(360, 480)
         self.music = music
         self._prefs = prefs
         self._save_prefs = save_prefs
-        self._closing = False
+        self._hide_on_close = hide_on_close
+        self._quitting = False  # a real quit, which closing to the tray is not
+        self._closing = False  # the question was answered: close for good
         self._settings: SettingsDialog | None = None
         self._settings_page = "appearance"  # the Settings dialog opens where it was last closed
         art = CoverArt(music.cover_file)
@@ -101,16 +124,7 @@ class SiphonWindow(Adw.ApplicationWindow):
         self._clear_button = Gtk.Button(label="Clear", action_name="win.clear-finished",
                                         tooltip_text="Clear Finished Downloads")
         header.pack_start(self._clear_button)
-        menu = Gio.Menu()
-        main = Gio.Menu()
-        main.append("Open Music Folder", "win.open-folder")
-        main.append("Refresh Library", "win.refresh-library")
-        main.append("Update Engine", "app.update-engine")
-        menu.append_section(None, main)
-        about = Gio.Menu()
-        about.append("About Siphon", "app.about")
-        menu.append_section(None, about)
-        header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu, primary=True,
+        header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=main_menu(), primary=True,
                                        tooltip_text="Main Menu"))
         cog = Gtk.Button(icon_name="emblem-system-symbolic", tooltip_text="Settings", action_name="win.settings")
         header.pack_end(cog)  # pack_end runs right to left: the cog sits left of the main menu
@@ -269,16 +283,34 @@ class SiphonWindow(Adw.ApplicationWindow):
 
     # -- closing
 
+    @property
+    def quitting(self) -> bool:
+        return self._quitting
+
+    def quit(self) -> None:
+        """Quit Siphon, not just close the window: asks first while downloads run, in the window shown again."""
+        self._quitting = True
+        if self.downloads.unfinished and not self.get_visible():
+            self.present()
+        self.close()
+
     def do_close_request(self) -> bool:
-        """Only running downloads need a question; music just stops."""
+        """Closing hides the window when Siphon keeps running in the tray. Quitting asks first while downloads
+        run; music just stops."""
+        if self._closing:
+            return False
+        if not self._quitting and self._hide_on_close():
+            self.set_visible(False)
+            self.emit("hidden")
+            return True
         count = self.downloads.unfinished
-        if self._closing or not count:
+        if not count:
             return False
         dialog = Adw.AlertDialog(heading=f"Stop {count} download{'s' if count != 1 else ''}?",
-                                 body="Closing Siphon cancels what is still downloading. "
+                                 body="Quitting Siphon cancels what is still downloading. "
                                       "Finished files are kept.")
         dialog.add_response("keep", "Keep Downloading")
-        dialog.add_response("stop", "Stop and Close")
+        dialog.add_response("stop", "Stop and Quit")
         dialog.set_response_appearance("stop", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("keep")
         dialog.set_close_response("keep")
@@ -288,6 +320,7 @@ class SiphonWindow(Adw.ApplicationWindow):
 
     def _on_close_response(self, _dialog: Adw.AlertDialog, response: str) -> None:
         if response != "stop":
+            self._quitting = False
             self.emit("close-cancelled")
             return
         self.downloads.cancel_all()

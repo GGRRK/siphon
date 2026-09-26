@@ -1,6 +1,8 @@
-"""The Settings dialog behind the header bar's cog (Ctrl+,): Appearance, Equalizer and Updates.
+"""The Settings dialog behind the header bar's cog (Ctrl+,): Appearance (with the window's Close to Tray),
+Equalizer and Updates.
 
-Each control saves through the app's own settings save; the Updates page follows app.updates while it is open.
+Each control saves through the app's own settings save; the Updates page follows app.updates, and Close to Tray
+whether a tray shows Siphon's icon, while it is open.
 """
 
 from gi.repository import Adw, Gtk
@@ -23,6 +25,13 @@ def status_action(state: str) -> str:
     return _STATUS_ACTIONS.get(state, "check")
 
 
+def tray_line(available: bool) -> str:
+    """The Close to Tray row's subtitle."""
+    if available:
+        return "Closing the window keeps Siphon playing and downloading in the tray"
+    return "No system tray was found, so closing the window quits Siphon"
+
+
 def engine_line(updates: Updates) -> str:
     """The engine row's subtitle; an engine fetched earlier still starts next time when a later check failed."""
     if updates.engine_state == "idle":
@@ -35,12 +44,17 @@ def engine_line(updates: Updates) -> str:
 class SettingsDialog(Adw.PreferencesDialog):
     def __init__(self, app: Adw.Application, window: Gtk.Window, page: str) -> None:
         super().__init__(title="Settings")
-        self.add(_appearance_page())
+        self._tray = TrayRow(app)
+        self.add(_appearance_page(self._tray.row))
         self.add(EqualizerPage(app))
         self._updates = UpdatesPage(app, window)
         self.add(self._updates)
         self.set_visible_page_name(page)
-        self.connect("closed", lambda _dialog: self._updates.detach())
+        self.connect("closed", self._on_closed)
+
+    def _on_closed(self, _dialog) -> None:
+        self._updates.detach()
+        self._tray.detach()
 
 
 def _card(child: Gtk.Widget) -> Gtk.Box:
@@ -51,7 +65,7 @@ def _card(child: Gtk.Widget) -> Gtk.Box:
     return box
 
 
-def _appearance_page() -> Adw.PreferencesPage:
+def _appearance_page(tray: Gtk.Widget) -> Adw.PreferencesPage:
     page = Adw.PreferencesPage(title="Appearance", icon_name="preferences-desktop-appearance-symbolic",
                                name="appearance")
     style = Adw.PreferencesGroup(title="Style")
@@ -61,7 +75,37 @@ def _appearance_page() -> Adw.PreferencesPage:
         accent = Adw.PreferencesGroup(title="Accent Colour")
         accent.add(_card(appearance.accent_choices()))
         page.add(accent)
+    window = Adw.PreferencesGroup(title="Window")
+    window.add(tray)
+    page.add(window)
     return page
+
+
+class TrayRow:
+    """Close to Tray (row); insensitive, saying why, while no tray shows Siphon's icon (closing quits then)."""
+
+    def __init__(self, app: Adw.Application) -> None:
+        self.row = Adw.SwitchRow(title="Close to Tray", active=app.prefs.close_to_tray)  # a final class
+        self._app = app
+        self._tray = app.tray
+        self._available = self._tray.connect("notify::available", self._sync) if self._tray is not None else 0
+        self.row.connect("notify::active", self._on_active)
+        self._sync()
+
+    def detach(self) -> None:
+        """The dialog closed: stop following the tray."""
+        if self._available:
+            self._tray.disconnect(self._available)
+            self._available = 0
+
+    def _sync(self, *_args) -> None:
+        available = self._tray is not None and self._tray.available
+        self.row.set_sensitive(available)
+        self.row.set_subtitle(tray_line(available))
+
+    def _on_active(self, row: Adw.SwitchRow, _pspec) -> None:
+        self._app.prefs.close_to_tray = row.get_active()
+        self._app.save_settings()
 
 
 class UpdatesPage(Adw.PreferencesPage):

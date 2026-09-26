@@ -660,7 +660,7 @@ def test_a_ready_installer_runs_when_siphon_quits_and_restart_reopens_it(world):
     updates.check_now()
     run_until(lambda: updates.checked)
     assert (updates.state, updates.latest, updates.page) == ("ready", "0.2.0", RELEASE.page)
-    assert updates.message == "Siphon 0.2.0 is ready. It installs when Siphon closes."
+    assert updates.message == "Siphon 0.2.0 is ready. It installs when you quit Siphon."
     assert world.signals == [("checking", 0.0), ("checking", 0.0), ("downloading", 0.0), ("downloading", 0.5),
                              ("downloading", 1.0), ("ready", 1.0), ("app-checked", True)]  # whole percents only
     updates.check_now()  # ready: nothing more to fetch
@@ -673,6 +673,20 @@ def test_a_ready_installer_runs_when_siphon_quits_and_restart_reopens_it(world):
     updates.restart_to_update()
     updates.finish()
     assert world.started[-1] == (Path("Setup.exe"), True)
+
+
+@pytest.mark.parametrize("restart", [False, True])
+def test_no_installer_or_relaunch_while_windows_ends_the_session(world, restart):
+    world.release = RELEASE
+    updates = world.make()
+    updates.check_now()
+    run_until(lambda: updates.checked)
+    if restart:
+        updates.restart_to_update()
+    updates.finish(session_ending=True)  # logoff, shutdown, or an installer closing Siphon
+    assert world.started == []
+    updates.finish()  # the next real quit
+    assert world.started == [(Path("Setup.exe"), restart)]
 
 
 def test_a_git_clone_restarts_only_when_asked(world):
