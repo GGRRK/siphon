@@ -11,11 +11,14 @@ import sys
 import time
 import urllib.error
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import siphon
 from siphon import updater
+from siphon.ui.updates import Updates
+from gi.repository import GLib  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -548,3 +551,168 @@ def test_bin_siphon_installs_the_fetched_release_before_python_starts(github, tm
     assert after.returncode == 0 and after.stdout.startswith("Siphon 0.1.2\n"), after.stderr
     assert "siphon: installed Siphon 0.1.2" in after.stderr
     assert head(clone) == new and not marker(clone).exists()
+
+
+# ---------------------------------------------------------------- the state the window and the settings show
+
+
+def run_until(condition, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    context = GLib.MainContext.default()
+    while not condition():
+        assert time.monotonic() < deadline, "timed out"
+        if not context.iteration(False):
+            time.sleep(0.005)
+
+
+class Core(SimpleNamespace):
+    SiphonError = type("SiphonError", (Exception,), {})
+
+    def __init__(self, after: str = "2026.08.19") -> None:
+        super().__init__(updates=[], after=after)
+
+    def engine_version(self) -> str:
+        return "2026.08.19"
+
+    def update_engine(self) -> str:
+        self.updates.append(True)
+        if isinstance(self.after, Exception):
+            raise self.after
+        return self.after
+
+
+@pytest.fixture
+def world(monkeypatch, web):
+    """Updates with GitHub, the installer and the relaunch replaced; the signals it emitted, in order."""
+    state = SimpleNamespace(release=None, prepared=("ready", Path("Setup.exe")), checks=0, started=[], quits=0,
+                            signals=[], forgot=0)
+
+    def latest():
+        state.checks += 1
+        if isinstance(state.release, Exception):
+            raise state.release
+        return state.release
+
+    def prepare(release, progress):
+        for fraction in (0.004, 0.5, 0.501, 1.0):
+            progress(fraction)
+        if isinstance(state.prepared, Exception):
+            raise state.prepared
+        return state.prepared
+
+    monkeypatch.setattr(updater, "latest_release", latest)
+    monkeypatch.setattr(updater, "prepare", prepare)
+    monkeypatch.setattr(updater, "forget_downloads", lambda: setattr(state, "forgot", state.forgot + 1))
+    monkeypatch.setattr(updater, "run_installer", lambda path, relaunch: state.started.append((path, relaunch)))
+    monkeypatch.setattr(updater, "relaunch", lambda: state.started.append("relaunch"))
+
+    def make(core: Core | None = None) -> Updates:
+        updates = Updates(core or Core(), lambda: setattr(state, "quits", state.quits + 1))
+        updates.connect("changed", lambda u: state.signals.append((u.state, round(u.fraction, 2))))
+        updates.connect("app-checked", lambda u, manual: state.signals.append(("app-checked", manual)))
+        updates.connect("engine-checked", lambda u, manual: state.signals.append(("engine-checked", manual)))
+        return updates
+
+    state.make = make
+    return state
+
+
+def test_with_both_switches_off_nothing_reaches_the_network(world):
+    core = Core()
+    updates = world.make(core)
+    updates.start(auto_update=False, auto_engine=False)
+    run_until(lambda: True)
+    time.sleep(0.05)
+    assert world.checks == 0 and core.updates == [] and world.signals == [] and updates.state == "idle"
+
+
+def test_up_to_date(world, capsys):
+    world.release = updater.Release(siphon.__version__, f"v{siphon.__version__}", "page", None)
+    updates = world.make()
+    updates.start(auto_update=True, auto_engine=False)
+    run_until(lambda: updates.checked)
+    assert (updates.state, updates.latest, updates.message) == (
+        "up-to-date", siphon.__version__, f"Siphon {siphon.__version__} is up to date.")
+    assert world.signals == [("checking", 0.0), ("up-to-date", 0.0), ("app-checked", False)]
+    assert world.forgot == 1 and f"siphon: Siphon {siphon.__version__} is up to date." in capsys.readouterr().err
+
+
+def test_a_ready_installer_runs_when_siphon_quits_and_restart_reopens_it(world):
+    world.release = RELEASE
+    updates = world.make()
+    updates.check_now()
+    run_until(lambda: updates.checked)
+    assert (updates.state, updates.latest, updates.page) == ("ready", "0.2.0", RELEASE.page)
+    assert updates.message == "Siphon 0.2.0 is ready. It installs when Siphon closes."
+    assert world.signals == [("checking", 0.0), ("checking", 0.0), ("downloading", 0.0), ("downloading", 0.5),
+                             ("downloading", 1.0), ("ready", 1.0), ("app-checked", True)]  # whole percents only
+    updates.check_now()  # ready: nothing more to fetch
+    assert world.checks == 1
+    updates.finish()
+    assert world.started == [(Path("Setup.exe"), False)]
+    updates.restart_to_update()
+    assert world.quits == 1
+    updates.cancel_restart()  # "Keep Downloading"
+    updates.restart_to_update()
+    updates.finish()
+    assert world.started[-1] == (Path("Setup.exe"), True)
+
+
+def test_a_git_clone_restarts_only_when_asked(world):
+    world.release, world.prepared = RELEASE, ("ready", None)
+    updates = world.make()
+    updates.check_now()
+    run_until(lambda: updates.checked)
+    assert updates.message == "Siphon 0.2.0 is ready. It installs when Siphon next starts."
+    updates.finish()  # bin/siphon installs it at the next start
+    assert world.started == []
+    updates.restart_to_update()
+    updates.finish()
+    assert world.started == ["relaunch"]
+
+
+@pytest.mark.parametrize("prepared, state, message", [
+    (("available", None), "available", "Siphon 0.2.0 is available from its release page."),
+    (updater.Unavailable("Siphon 0.2.0 is out, but this copy is left as it is: it is on branch x, not master."),
+     "unavailable", "it is on branch x"),
+    (updater.UpdateError("GitHub gives no checksum for Siphon-0.2.0-Setup.exe, so it is not installed."),
+     "error", "no checksum"),
+])
+def test_what_cannot_be_installed_is_said_and_never_run(world, prepared, state, message):
+    world.release, world.prepared = RELEASE, prepared
+    updates = world.make()
+    updates.start(auto_update=True, auto_engine=False)
+    run_until(lambda: updates.checked)
+    assert updates.state == state and message in updates.message and updates.latest == "0.2.0"
+    updates.restart_to_update()
+    updates.finish()
+    assert world.started == [] and world.quits == 0
+
+
+def test_offline_is_an_error_state_not_a_crash(world):
+    world.release = updater.UpdateError("Couldn't reach GitHub (offline) - check your connection.")
+    updates = world.make()
+    updates.start(auto_update=True, auto_engine=False)
+    run_until(lambda: updates.checked)
+    assert (updates.state, updates.latest) == ("error", "") and "Couldn't reach GitHub" in updates.message
+
+
+@pytest.mark.parametrize("after, state, pending, message", [
+    ("2026.09.25", "ready", "2026.09.25", "yt-dlp 2026.09.25 will be used from the next start."),
+    ("2026.08.19", "up-to-date", "", "The engine is up to date (yt-dlp 2026.08.19)."),
+    (Core.SiphonError("Couldn't reach PyPI (offline) - check your connection."), "error", "", "Couldn't reach PyPI"),
+])
+@pytest.mark.parametrize("manual", [False, True])
+def test_the_engine_updates_for_the_next_start(world, after, state, pending, message, manual):
+    core = Core(after)
+    updates = world.make(core)
+    if manual:
+        updates.update_engine_now()
+    else:
+        updates.start(auto_update=False, auto_engine=True)
+    assert updates.engine_busy
+    updates.update_engine_now()  # already on it
+    run_until(lambda: updates.engine_checked)
+    assert core.updates == [True] and world.checks == 0
+    assert (updates.engine_state, updates.engine_version, updates.engine_pending) == (state, "2026.08.19", pending)
+    assert message in updates.engine_message and world.signals[-1] == ("engine-checked", manual)
