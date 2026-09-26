@@ -482,9 +482,29 @@ def record(song: Song, gains, tmp_path: Path, monkeypatch) -> array.array:
         run_until(lambda: player.state == "stopped", 10)
     finally:
         player.shutdown()  # the WAV header is finished when the output closes
-    raw = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(out), "-af", "pan=mono|c0=c0",
-                          "-f", "f64le", "-"], capture_output=True, check=True).stdout
-    return array.array("d", raw)
+    return first_channel(out)
+
+
+def first_channel(path: Path) -> array.array:
+    """A WAV file's first channel as floats, read here rather than by ffmpeg: the Windows build's ffmpeg encodes
+    only the formats Siphon writes. mpv's pcm output is 16-bit when no filter runs, else 32-bit float."""
+    data = path.read_bytes()
+    pos, fmt, body = 12, b"", b""
+    while pos + 8 <= len(data):
+        size = int.from_bytes(data[pos + 4:pos + 8], "little")
+        if data[pos:pos + 4] == b"fmt ":
+            fmt = data[pos + 8:pos + 8 + size]
+        elif data[pos:pos + 4] == b"data":
+            body = data[pos + 8:pos + 8 + size]
+        pos += 8 + size + (size & 1)
+    tag, channels, bits = (int.from_bytes(fmt[a:b], "little") for a, b in ((0, 2), (2, 4), (14, 16)))
+    if tag == 0xFFFE:  # WAVE_FORMAT_EXTENSIBLE: the subformat GUID starts with the format tag
+        tag = int.from_bytes(fmt[24:26], "little")
+    assert (tag, bits) in ((1, 16), (3, 32)), (tag, bits)
+    samples = array.array("h" if tag == 1 else "f")
+    samples.frombytes(body[:len(body) - len(body) % (channels * bits // 8)])
+    scale = 1 / 32768 if tag == 1 else 1.0
+    return array.array("d", (x * scale for x in samples[::channels]))
 
 
 def level_db(samples, hz: float, rate: int = 48000) -> float:
@@ -511,7 +531,7 @@ def test_the_preamp_keeps_a_full_scale_tone_at_the_curves_peak_from_clipping(tmp
     hz = max(range(4000, 12000), key=lambda f: eq.response(loud, f, rate))
     path = tmp_path / "full.wav"
     subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
-                    f"aevalsrc=sin(2*PI*{hz}*t):s={rate}:d=2", "-c:a", "pcm_f32le", str(path)], check=True)
+                    f"aevalsrc=sin(2*PI*{hz}*t):s={rate}:d=2", "-c:a", "pcm_s24le", str(path)], check=True)
     samples = record(Song(path, "Full", "", "", 0.0, None, 0.0, 1), loud, tmp_path, monkeypatch)
     peak = max(map(abs, samples[rate:]))
     assert 0.98 < peak < 1.0  # close to full scale, not over it: the preamp is 19.7 dB for a 19.64 dB peak
