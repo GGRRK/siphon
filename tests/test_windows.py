@@ -2,6 +2,7 @@
 compared as PureWindowsPath, so these run on the Linux dev machine and in Windows CI alike."""
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -370,6 +371,15 @@ def test_a_windowed_session_writes_everything_to_the_log(tmp_path):
     assert done.returncode == 0, done.stderr
     expected = ["python says hello"] + (["c stdout says hello", "c stderr says hello"] if os.name == "nt" else [])
     assert sorted(log.read_text(encoding="utf-8").splitlines()) == sorted(expected)
+
+
+def test_the_windows_ffmpeg_keeps_the_equalizers_filters():
+    """build-av.sh trims ffmpeg for Windows; mpv silently drops a filter libavfilter lacks, so the equalizer
+    (ffmpeg's aformat, volume and equalizer filters) would just stop working there. The selftest checks the built
+    result."""
+    script = (ROOT / "packaging" / "windows" / "build-av.sh").read_text()
+    configure = script[script.index("./configure"):script.index("make -j")]
+    assert not re.search(r"--disable-(everything|avfilter|filters\b|filter=)", configure)
 
 
 def test_version_flag():
