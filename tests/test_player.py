@@ -15,6 +15,7 @@ import pytest
 from gi.repository import GLib
 
 from siphon import eq
+from siphon import player as player_module
 from siphon.library import Song
 from siphon.player import Player
 
@@ -399,6 +400,15 @@ def test_switching_off_mid_song_zeroes_the_filters_and_the_next_seek_drops_them(
     player.seek(5.0)
     run_until(lambda: player.position >= 5.0)
     assert player._mpv.af == []
+
+
+def test_mpvs_own_on_screen_tools_are_off(player, tones):
+    player.play_songs([tones["long"]])
+    run_until(lambda: player.position > 0.3)
+    assert [player._mpv[tool] for tool in player_module._TOOLS] == [False] * len(player_module._TOOLS)
+    if os.path.isdir("/proc/self/task"):  # their threads are gone too
+        names = [Path(f"/proc/self/task/{task}/comm").read_text().strip() for task in os.listdir("/proc/self/task")]
+        assert not [name for name in names if name.startswith("lua/")]
 
 
 @pytest.mark.linux
