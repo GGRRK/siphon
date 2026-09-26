@@ -1,0 +1,141 @@
+"""Stand-in for siphon.core with the same API, for running the window offline.
+
+Any link resolves to one track, or five for links containing "playlist".
+Downloads fail for links containing "fail"; links containing "unreadable"
+fail while being read. Nothing touches the network; "downloads" are empty
+files written into the requested folder.
+"""
+
+import re
+import tempfile
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+
+
+class SiphonError(Exception):
+    pass
+
+
+class Cancelled(SiphonError):
+    pass
+
+
+FORMATS = ("mp3", "m4a", "opus", "flac", "best")
+FORMAT_LABELS = {"mp3": "MP3", "m4a": "M4A (AAC)", "opus": "Opus", "flac": "FLAC", "best": "Original (no re-encode)"}
+
+
+@dataclass
+class Track:
+    url: str
+    title: str
+    artist: str = ""
+    album: str = ""
+    duration: float | None = None
+    cover_url: str = ""
+    source: str = ""
+    query: str = ""
+    index: int | None = None
+    track_no: int | None = None
+
+
+@dataclass
+class Resolved:
+    title: str
+    kind: str
+    tracks: list[Track] = field(default_factory=list)
+    folder: str | None = None
+    note: str = ""
+
+
+@dataclass
+class Progress:
+    stage: str
+    fraction: float | None
+    detail: str = ""
+
+
+_PLAYLIST = [
+    ("Neon Harbour", "Kaito Mori"),
+    ("A Very Long Song Title That Keeps Going Well Past The Edge Of Any Reasonable Row Width", "The Extended Mix Collective, Featuring Many Guests"),
+    ("Salt & Static", "Lumen Drive"),
+    ("Paper Moons", "Ines Calder"),
+    ("Low Tide", "Kaito Mori"),
+]
+
+
+def is_supported(text: str) -> bool:
+    return bool(re.fullmatch(r"(https?://\S+|spotify:(track|album|playlist):\w+)", text.strip()))
+
+
+def _source(url: str) -> str:
+    for needle, name in (("spotify", "Spotify"), ("soundcloud", "SoundCloud"), ("bandcamp", "Bandcamp"), ("youtu", "YouTube")):
+        if needle in url:
+            return name
+    return "Web"
+
+
+def resolve(url: str) -> Resolved:
+    time.sleep(1.2)
+    if "unreadable" in url:
+        raise SiphonError("Siphon could not read this link.")
+    source = _source(url)
+    if "playlist" in url:
+        tracks = [
+            Track(url=f"{url}#{i}", title=title, artist=artist, source=source, index=i, track_no=i, duration=200.0)
+            for i, (title, artist) in enumerate(_PLAYLIST, start=1)
+        ]
+        return Resolved(title="Late Night Drive & Chill", kind="playlist", tracks=tracks,
+                        folder="Late Night Drive & Chill", note="Spotify shows the first 100 tracks of this playlist")
+    slug = re.split(r"[/=?#]", url.rstrip("/"))[-1]
+    title = "Me at the zoo" if slug == "jNQXAC9IVRw" else slug.replace("-", " ").replace("_", " ").title()
+    track = Track(url=url, title=title, artist="jawed", source=source, duration=19.0)
+    return Resolved(title=track.title, kind="track", tracks=[track], folder=None)
+
+
+def _wait(seconds: float, cancel: threading.Event | None) -> None:
+    if cancel is None:
+        time.sleep(seconds)
+    elif cancel.wait(seconds):
+        raise Cancelled("Download cancelled.")
+
+
+def download(track: Track, outdir: Path, fmt: str, progress: Callable[[Progress], None] | None = None,
+             cancel: threading.Event | None = None) -> Path:
+    report = progress or (lambda p: None)
+    ext = "opus" if fmt == "best" else fmt
+    target = Path(outdir) / f"{track.artist} - {track.title}.{ext}".replace("/", "_")
+    if target.exists():
+        report(Progress("done", 1.0, "already downloaded"))
+        return target
+    report(Progress("matching", None))
+    _wait(1.0, cancel)
+    if "fail" in track.url:
+        raise SiphonError("No matching audio was found for this track.")
+    for step in range(41):
+        report(Progress("downloading", step / 40, f"{step * 2.5:.0f}%"))
+        _wait(0.1, cancel)
+    report(Progress("converting", None))
+    _wait(0.8, cancel)
+    report(Progress("tagging", None))
+    _wait(0.2, cancel)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(b"")
+    report(Progress("done", 1.0))
+    return target
+
+
+def default_outdir() -> Path:
+    # Never the real ~/Music: the fake is for development runs only.
+    return Path(tempfile.gettempdir()) / "siphon-fake-out"
+
+
+def engine_version() -> str:
+    return "2026.08.19 (fake)"
+
+
+def update_engine() -> str:
+    time.sleep(1.5)
+    return "2026.09.25 (fake)"

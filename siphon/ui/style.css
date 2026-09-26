@@ -1,0 +1,39 @@
+/* Only shapes and emphasis: every colour comes from the theme, so a recoloured GTK theme recolours Siphon. */
+
+.cover {
+  border-radius: 6px;
+}
+
+.cover.large {
+  border-radius: 12px;
+}
+
+.cover.placeholder {
+  background-color: alpha(currentColor, 0.08);
+}
+
+.cover.placeholder image {
+  color: alpha(currentColor, 0.5);
+}
+
+.song-row.playing .song-title {
+  color: var(--accent-color);
+  font-weight: bold;
+}
+
+.song-row.missing {
+  opacity: 0.55;
+}
+
+.song-row.drop-before {
+  box-shadow: inset 0 2px var(--accent-bg-color);
+}
+
+.song-row.drop-after {
+  box-shadow: inset 0 -2px var(--accent-bg-color);
+}
+
+.now-playing .play-button {
+  min-width: 42px;
+  min-height: 42px;
+}

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#62a0ea"/>
+      <stop offset="1" stop-color="#1c71d8"/>
+    </linearGradient>
+    <linearGradient id="drop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#c7e0fb"/>
+    </linearGradient>
+  </defs>
+  <!-- plate with a darker lip along the bottom edge -->
+  <rect x="10" y="14" width="108" height="104" rx="24" fill="#1a5fb4"/>
+  <rect x="10" y="10" width="108" height="104" rx="24" fill="url(#face)"/>
+  <!-- a drop falling onto the water; its ripples are the sound wave -->
+  <path d="M64 20 C59.5 31 48 41 48 53 a16 16 0 0 0 32 0 C80 41 68.5 31 64 20 Z" fill="url(#drop)"/>
+  <g stroke="#ffffff" stroke-width="7" stroke-linecap="round" fill="none">
+    <path d="M64 78 V100"/>
+    <path d="M52 82 V96" stroke-opacity="0.9"/>
+    <path d="M76 82 V96" stroke-opacity="0.9"/>
+    <path d="M40 85 V93" stroke-opacity="0.7"/>
+    <path d="M88 85 V93" stroke-opacity="0.7"/>
+    <path d="M28 88 V90" stroke-opacity="0.5"/>
+    <path d="M100 88 V90" stroke-opacity="0.5"/>
+  </g>
+</svg>

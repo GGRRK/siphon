@@ -1,0 +1,138 @@
+"""Cover thumbnails: found and decoded off the main thread, cached, shown by `Cover` widgets.
+
+Scrolling a long list binds and rebinds rows faster than covers can load,
+so the newest request is served first, and a row that moves on to another
+song withdraws its old request.
+"""
+
+import threading
+from collections import OrderedDict
+from collections.abc import Callable
+from pathlib import Path
+
+from gi.repository import Adw, Gdk, GdkPixbuf, GLib, Gtk
+
+Key = tuple[Path, int]
+Deliver = Callable[[Gdk.Texture | None], None]
+Ticket = tuple[Key, Deliver]
+
+_SCALE = 2  # decode at twice the logical size so covers stay sharp on HiDPI screens
+
+
+class CoverArt:
+    def __init__(self, cover_file: Callable[[Path], Path | None], workers: int = 2, capacity: int = 1500) -> None:
+        self._cover_file = cover_file
+        self._capacity = capacity
+        self._cache: OrderedDict[Key, Gdk.Texture | None] = OrderedDict()
+        self._waiting: dict[Key, list[Deliver]] = {}
+        self._queue: OrderedDict[Key, None] = OrderedDict()  # not picked up yet; newest last
+        self._lock = threading.Condition()
+        for n in range(workers):
+            threading.Thread(target=self._work, name=f"siphon-covers-{n}", daemon=True).start()
+
+    def load(self, path: Path, size: int, deliver: Deliver) -> Ticket | None:
+        """Calls `deliver` with the texture (None when the song has no cover): at once when cached, else later.
+
+        A later delivery returns a ticket that `cancel` takes back."""
+        key = (path, size * _SCALE)
+        if key in self._cache:
+            self._cache.move_to_end(key)
+            deliver(self._cache[key])
+            return None
+        with self._lock:
+            self._waiting.setdefault(key, []).append(deliver)
+            if key in self._queue:
+                self._queue.move_to_end(key)
+            elif len(self._waiting[key]) == 1:  # else a worker is decoding it already
+                self._queue[key] = None
+                self._lock.notify()
+        return key, deliver
+
+    def cancel(self, ticket: Ticket) -> None:
+        key, deliver = ticket
+        with self._lock:
+            waiting = self._waiting.get(key, [])
+            if deliver in waiting:
+                waiting.remove(deliver)
+            if not waiting and key in self._queue:
+                del self._queue[key]
+                del self._waiting[key]
+
+    def _work(self) -> None:  # worker thread
+        while True:
+            with self._lock:
+                while not self._queue:
+                    self._lock.wait()
+                key, _ = self._queue.popitem()
+            GLib.idle_add(self._deliver, key, self._decode(*key))
+
+    def _deliver(self, key: Key, texture: Gdk.Texture | None) -> bool:
+        self._cache[key] = texture
+        while len(self._cache) > self._capacity:
+            self._cache.popitem(last=False)
+        with self._lock:
+            waiting = self._waiting.pop(key, [])
+        for deliver in waiting:
+            deliver(texture)
+        return GLib.SOURCE_REMOVE
+
+    def _decode(self, path: Path, px: int) -> Gdk.Texture | None:  # worker thread
+        try:
+            file = self._cover_file(path)
+            if file is None:
+                return None
+            _fmt, width, height = GdkPixbuf.Pixbuf.get_file_info(str(file))
+            if not width or not height:
+                return None
+            # Scale the short side to px, then crop the middle: covers fill their square.
+            scale = px / min(width, height)
+            w, h = max(px, round(width * scale)), max(px, round(height * scale))
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(str(file), w, h, False)
+            pixbuf = pixbuf.new_subpixbuf((w - px) // 2, (h - px) // 2, px, px).copy()
+        except Exception:  # a bad cover must never break a list; the placeholder stays
+            return None
+        fmt = Gdk.MemoryFormat.R8G8B8A8 if pixbuf.get_has_alpha() else Gdk.MemoryFormat.R8G8B8
+        return Gdk.MemoryTexture.new(px, px, fmt, pixbuf.read_pixel_bytes(), pixbuf.get_rowstride())
+
+
+class Cover(Adw.Bin):
+    """A square cover with rounded corners, or a music-note placeholder."""
+
+    def __init__(self, art: CoverArt, size: int) -> None:
+        super().__init__(overflow=Gtk.Overflow.HIDDEN, halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER)
+        self.add_css_class("cover")
+        if size >= 96:
+            self.add_css_class("large")
+        self.set_size_request(size, size)
+        self._art = art
+        self._size = size
+        self._path: Path | None = None
+        self._ticket: Ticket | None = None
+        self._image = Gtk.Image(halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER,
+                                accessible_role=Gtk.AccessibleRole.PRESENTATION)
+        self.set_child(self._image)
+        self._placeholder()
+
+    def show(self, path: Path | None) -> None:
+        if path == self._path:
+            return
+        if self._ticket is not None:
+            self._art.cancel(self._ticket)
+            self._ticket = None
+        self._path = path
+        self._placeholder()
+        if path is not None:
+            self._ticket = self._art.load(path, self._size, lambda texture: self._loaded(path, texture))
+
+    def _loaded(self, path: Path, texture: Gdk.Texture | None) -> None:
+        self._ticket = None
+        if path != self._path or texture is None:
+            return
+        self.remove_css_class("placeholder")
+        self._image.set_from_paintable(texture)
+        self._image.set_pixel_size(self._size)
+
+    def _placeholder(self) -> None:
+        self.add_css_class("placeholder")
+        self._image.set_from_icon_name("audio-x-generic-symbolic")
+        self._image.set_pixel_size(max(16, self._size * 3 // 8))

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Run Siphon from its repo: `siphon` opens the window, `siphon get URL...` downloads in the terminal.
+set -euo pipefail
+
+repo="$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")"
+venv="${SIPHON_VENV:-$HOME/.local/share/siphon/venv}"
+[[ -x "$venv/bin/python" ]] || venv="$repo/.venv"
+if [[ ! -x "$venv/bin/python" ]]; then
+    echo "siphon: no Python environment found - run $repo/install.sh" >&2
+    exit 1
+fi
+
+export PYTHONPATH="$repo${PYTHONPATH:+:$PYTHONPATH}"
+exec "$venv/bin/python" -m siphon "$@"

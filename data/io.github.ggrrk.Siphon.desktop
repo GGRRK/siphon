@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Siphon
+GenericName=Music Downloader and Player
+Comment=Get the audio from a link, then play your music library and playlists
+Keywords=youtube;spotify;soundcloud;bandcamp;music;mp3;download;player;playlist;library;
+Exec=siphon %U
+Icon=io.github.ggrrk.Siphon
+Terminal=false
+Categories=AudioVideo;Audio;Player;Network;
+StartupNotify=true
+StartupWMClass=io.github.ggrrk.Siphon
