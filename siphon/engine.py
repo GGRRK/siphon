@@ -1,10 +1,15 @@
-"""Download-engine updates for packaged builds, which have no pip.
+"""Download-engine updates: the newest yt-dlp, used from the next start.
 
 update() fetches the newest yt-dlp wheel from PyPI, plus the yt-dlp-ejs wheel that release pins (the
 YouTube challenge solver yt-dlp checks the version of), verifies both against PyPI's sha256 digests
 and records them in <data>/engine/engine.json. activate() then puts them first on sys.path at the next
 start: both are pure-Python wheels, which Python imports straight from the zip file. Nothing is
 recorded until every check passed, so a failed download never replaces the engine in use.
+
+A Linux venv updates this way too, not with pip: pip upgrades yt-dlp in place, under a running Siphon
+that still imports extractors lazily, so one process could mix two versions. A new wheel has a new file
+name and the running process keeps its own. The price: Python caches no bytecode for a zip, so importing
+yt-dlp from the wheel takes 0.34 s instead of 0.11 s (measured 2026-09-26, Python 3.14).
 """
 
 import hashlib

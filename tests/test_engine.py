@@ -169,11 +169,15 @@ def test_activate_ignores_an_incomplete_engine(pypi, monkeypatch):
     assert engine.installed() is None and engine.activate() is None
 
 
-def test_core_updates_a_packaged_build_through_the_engine(tmp_path, monkeypatch):
+@pytest.mark.parametrize("packaged", [True, False])
+def test_core_updates_every_build_through_the_engine(tmp_path, monkeypatch, packaged):
     def refuse(current: str) -> str:
         raise engine.UpdateError("No thanks.")
 
-    monkeypatch.setenv("SIPHON_BUNDLE", str(tmp_path))
+    if packaged:
+        monkeypatch.setenv("SIPHON_BUNDLE", str(tmp_path))
+    # never pip: it would replace yt-dlp's files under a running Siphon
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: pytest.fail("ran a program"))
     monkeypatch.setattr(engine, "update", lambda current: f"after {current}")
     assert core.update_engine() == f"after {core.engine_version()}"
     monkeypatch.setattr(engine, "update", refuse)

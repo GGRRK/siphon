@@ -88,11 +88,12 @@ def test_setup_environment_puts_the_bundled_tools_first(win, tmp_path, monkeypat
     assert paths.no_window() == 0x08000000
 
 
-def test_setup_environment_from_source_changes_nothing(monkeypatch):
+def test_setup_environment_from_source_only_loads_the_engine(monkeypatch):
+    activated = []
     monkeypatch.setenv("PATH", "/usr/bin")
-    monkeypatch.setattr(engine, "activate", lambda: pytest.fail("activated from source"))
+    monkeypatch.setattr(engine, "activate", lambda: activated.append(True))
     paths.setup_environment()
-    assert os.environ["PATH"] == "/usr/bin"
+    assert os.environ["PATH"] == "/usr/bin" and activated == [True]  # a Linux venv uses downloaded engines too
 
 
 def test_pretty_path_shows_windows_folders_in_full(win):

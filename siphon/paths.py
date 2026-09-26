@@ -59,10 +59,8 @@ def bundle_dir() -> Path | None:
 def setup_environment() -> None:
     """Run first thing: put a packaged build's tools on PATH and load a downloaded engine update."""
     bundle = bundle_dir()
-    if bundle is None:
-        return
-    tools = bundle / "bin"
-    if tools.is_dir():
+    tools = bundle / "bin" if bundle is not None else None
+    if tools is not None and tools.is_dir():
         # yt-dlp finds ffmpeg and the JS runtime on PATH; python-mpv looks for libmpv-2.dll there too.
         os.environ["PATH"] = os.pathsep.join(filter(None, (str(tools), os.environ.get("PATH"))))
         if windows():

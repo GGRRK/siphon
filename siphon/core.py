@@ -9,7 +9,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -726,31 +725,12 @@ def engine_version() -> str:
 def update_engine() -> str:
     """Fetch the newest yt-dlp and return the version the next launch will use.
 
-    The running process keeps the yt-dlp it already imported. A packaged build has no pip, so it
-    downloads verified wheels from PyPI (engine.py); a venv install upgrades with pip.
+    The running process keeps the yt-dlp it already imported: engine.py downloads verified wheels, which
+    the next start loads (every build, see engine.py for why not pip).
     """
-    if paths.bundle_dir() is not None:
-        from . import engine
+    from . import engine
 
-        try:
-            return engine.update(engine_version())
-        except engine.UpdateError as e:
-            raise SiphonError(str(e)) from None
-    if sys.prefix == sys.base_prefix:
-        raise SiphonError("Siphon isn't running from its own environment - run install.sh update.")
     try:
-        done = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", "--disable-pip-version-check",
-             "--upgrade", "yt-dlp[default]"],
-            capture_output=True, text=True, timeout=600, creationflags=paths.no_window(),
-        )
-        if done.returncode != 0:
-            lines = done.stderr.strip().splitlines() or ["pip failed"]
-            raise SiphonError(f"Updating yt-dlp failed: {lines[-1][:160]}")
-        version = subprocess.run(
-            [sys.executable, "-c", "from yt_dlp.version import __version__; print(__version__)"],
-            capture_output=True, text=True, timeout=60, creationflags=paths.no_window(),
-        )
-    except subprocess.TimeoutExpired:
-        raise SiphonError("Updating yt-dlp took too long - check your connection.") from None
-    return version.stdout.strip()
+        return engine.update(engine_version())
+    except engine.UpdateError as e:
+        raise SiphonError(str(e)) from None
