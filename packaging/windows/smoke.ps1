@@ -1,9 +1,10 @@
 <#
 Smoke test of the packaged Windows build: the portable zip's command line (versions, the selftest with a
 real YouTube download, a Spotify track, an update check against GitHub), a downloaded engine update, then
-the installer, the installed window (with a screenshot), Siphon updating itself from a local test release
-(installed as it closes; and by siphon-cli update, which opens it again) and the uninstaller. Nothing
-makes a sound. Every check runs even when an
+the installer, the installed window (with a screenshot) closing to the tray, a second start showing it
+instead of running twice, Quit from the tray menu, Siphon updating itself from a local test release (not
+while the session ends; installed as it quits; and by siphon-cli update, which opens it again) and the
+uninstaller. Nothing makes a sound. Every check runs even when an
 earlier one failed; the script fails at the end if any did. The workflow runs it with a PATH that holds
 only Windows itself and MSYS2 moved away, which proves the app needs nothing else.
 #>
@@ -50,6 +51,47 @@ function Screenshot([string] $path) {
     $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
     $bitmap.Save($path, [System.Drawing.Imaging.ImageFormat]::Png)
     $graphics.Dispose(); $bitmap.Dispose()
+}
+
+# The tray's hidden window (siphon/wintray.py), found by its class: a second start sends it its command line,
+# and this script sends it what the tray menu would.
+Add-Type -Namespace SiphonSmoke -Name Win32 -MemberDefinition @'
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, string title);
+[DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+[DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+[DllImport("user32.dll")] public static extern IntPtr SendMessageTimeoutW(IntPtr hwnd, uint msg, IntPtr wParam,
+    IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+'@
+$TrayClass = 'io.github.ggrrk.Siphon.Tray'
+$QuitCommand = 8  # the tray menu's Quit Siphon (siphon/tray.py)
+
+function Get-TrayWindow([Diagnostics.Process] $process) {
+    $hwnd = [SiphonSmoke.Win32]::FindWindowW($TrayClass, $null)
+    if ($hwnd -eq [IntPtr]::Zero) { throw 'Siphon has no tray window' }
+    $owner = [uint32] 0
+    [SiphonSmoke.Win32]::GetWindowThreadProcessId($hwnd, [ref] $owner) | Out-Null
+    if ($owner -ne $process.Id) { throw "the tray window belongs to process $owner, not Siphon's $($process.Id)" }
+    return $hwnd
+}
+
+function Close-ToTray([Diagnostics.Process] $process) {
+    $process.CloseMainWindow() | Out-Null  # WM_CLOSE, as the window's X sends
+    Start-Sleep -Seconds 3
+    if ($process.HasExited) { throw "closing the window quit Siphon (exit code $($process.ExitCode))" }
+    $process.Refresh()
+    if ($process.MainWindowHandle -ne [IntPtr]::Zero) { throw 'the window still shows after it was closed' }
+    Get-TrayWindow $process | Out-Null
+    Write-Host '  ok: closing the window left Siphon running in the tray'
+}
+
+function Stop-SiphonFromTray([Diagnostics.Process] $process) {
+    # WM_COMMAND with the menu's Quit Siphon: the app's own quit path, as a click on it takes
+    $hwnd = Get-TrayWindow $process
+    [SiphonSmoke.Win32]::PostMessageW($hwnd, 0x0111, [IntPtr] $QuitCommand, [IntPtr]::Zero) | Out-Null
+    if (-not $process.WaitForExit(15000)) { $process.Kill(); throw 'Siphon did not quit from the tray menu' }
+    $left = [SiphonSmoke.Win32]::FindWindowW($TrayClass, $null)
+    if ($left -ne [IntPtr]::Zero) { throw 'a tray window outlived Siphon' }
+    Write-Host '  ok: Quit Siphon in the tray menu quit it'
 }
 
 function Wait-For([scriptblock] $condition, [int] $seconds, [string] $what) {
@@ -159,7 +201,7 @@ Check 'installer (per user, silent)' {
     }
 }
 
-Check 'the installed window' {
+Check 'the installed window, the tray and a second start' {
     $log = Join-Path $env:LOCALAPPDATA 'Siphon\siphon.log'
     $app = Start-Process "$installed\Siphon.exe" -PassThru
     Start-Sleep -Seconds 12
@@ -169,20 +211,25 @@ Check 'the installed window' {
     Assert-SiphonWindow $app
     Write-Host '  ok: the Siphon window is up after 15 s'
     if (-not (Test-Path $log)) { throw "no log at $log" }
-    Copy-Item $log $Out
-    if ((Get-Content -Raw $log) -match 'Traceback') { Get-Content $log | Write-Host; throw 'a Python traceback in siphon.log' }
-    Write-Host '  ok: no traceback in siphon.log'
-    # Without D-Bus, GLib cannot hand a second start to the running Siphon: it opens a window of its own.
+    Expect (Get-Content -Raw $log) 'siphon: tray icon added' 'Shell_NotifyIcon added the tray icon'
+    Close-ToTray $app
+    Wait-For { Select-String -Quiet -SimpleMatch 'siphon: tray balloon shown' $log } 10 'the first-close balloon'
+    Screenshot (Join-Path $Out 'siphon-tray-balloon.png')
+    # GLib's own single instance needs D-Bus, which Windows lacks: the running Siphon's tray window takes the
+    # second start's command line, shows its window again, and the second one exits.
     $second = Start-Process "$installed\Siphon.exe" -PassThru
-    Start-Sleep -Seconds 8
-    if ($second.HasExited) { throw "a second Siphon.exe exited with $($second.ExitCode)" }
-    Assert-SiphonWindow $second
-    Write-Host '  ok: a second start opens a second window'
-    foreach ($process in $second, $app) {
-        $process.CloseMainWindow() | Out-Null
-        if (-not $process.WaitForExit(15000)) { $process.Kill(); throw 'Siphon.exe did not quit when its window was closed' }
-    }
-    Write-Host '  ok: quit when its window was closed'
+    if (-not $second.WaitForExit(20000)) { $second.Kill(); throw 'a second Siphon.exe kept running' }
+    if ($second.ExitCode -ne 0) { throw "a second Siphon.exe exited with $($second.ExitCode)" }
+    Wait-For { $app.Refresh(); $app.MainWindowTitle -eq 'Siphon' } 10 'the running window shown again by a second start'
+    $running = @(Get-Process Siphon -ErrorAction SilentlyContinue).Count
+    if ($running -ne 1) { throw "$running Siphon processes run" }
+    Write-Host '  ok: a second start showed the running window and exited; one Siphon runs'
+    Stop-SiphonFromTray $app
+    Copy-Item $log $Out
+    $text = Get-Content -Raw $log
+    Expect $text 'siphon: tray icon removed' 'the icon was removed on quitting'
+    if ($text -match 'Traceback') { Get-Content $log | Write-Host; throw 'a Python traceback in siphon.log' }
+    Write-Host '  ok: no traceback in siphon.log'
 }
 
 Check 'the installed window in dark mode, with GTK debug output' {
@@ -197,8 +244,7 @@ Check 'the installed window in dark mode, with GTK debug output' {
         Screenshot (Join-Path $Out 'siphon-window-dark.png')
         if ($app.HasExited) { throw "Siphon.exe exited with $($app.ExitCode)" }
         Assert-SiphonWindow $app
-        $app.CloseMainWindow() | Out-Null
-        if (-not $app.WaitForExit(15000)) { $app.Kill(); throw 'Siphon.exe did not quit when its window was closed' }
+        Stop-SiphonFromTray $app
     } finally {
         Remove-Item Env:G_MESSAGES_DEBUG
         Set-ItemProperty $personalize AppsUseLightTheme 1 -Type DWord
@@ -211,7 +257,31 @@ Check 'the installed window in dark mode, with GTK debug output' {
     Write-Host "  ok: $debug GLib/GTK debug lines in siphon.log"
 }
 
-Check 'a downloaded update installs when Siphon closes' {
+Check 'the session ending quits Siphon without installing a downloaded update' {
+    $log = Join-Path $env:LOCALAPPDATA 'Siphon\siphon.log'
+    $setupLog = Join-Path $env:LOCALAPPDATA 'Siphon\update\setup.log'
+    Remove-Item $setupLog -ErrorAction SilentlyContinue
+    $env:SIPHON_UPDATE_SOURCE = Write-TestRelease (Join-Path $Out 'release.json')
+    try { $app = Start-Process "$installed\Siphon.exe" -PassThru } finally { Remove-Item Env:SIPHON_UPDATE_SOURCE }
+    Wait-For { (Test-Path $log) -and (Select-String -Quiet -SimpleMatch 'Siphon 99.0.0 is ready' $log) } 90 "'Siphon 99.0.0 is ready' in siphon.log"
+    # what Windows sends every top-level window when the session ends: may it end (TRUE), then it ends
+    $tray = Get-TrayWindow $app
+    $zero, $answer = [IntPtr]::Zero, [IntPtr]::Zero
+    $hung = 2  # SMTO_ABORTIFHUNG
+    [SiphonSmoke.Win32]::SendMessageTimeoutW($tray, 0x0011, $zero, $zero, $hung, 5000, [ref] $answer) | Out-Null
+    if ($answer -ne [IntPtr] 1) { throw "WM_QUERYENDSESSION was answered $answer, not TRUE" }
+    [SiphonSmoke.Win32]::SendMessageTimeoutW($tray, 0x0016, [IntPtr] 1, $zero, $hung, 10000, [ref] $answer) | Out-Null
+    if (-not $app.WaitForExit(15000)) { $app.Kill(); throw 'Siphon did not quit when the session ended' }
+    Start-Sleep -Seconds 10
+    if (Test-Path $setupLog) { throw 'the installer ran while the session was ending' }
+    Copy-Item $log (Join-Path $Out 'siphon-session-end.log')
+    $text = Get-Content -Raw $log
+    Expect $text 'siphon: tray icon removed' 'the icon was removed'
+    if ($text -match 'Traceback') { throw 'a Python traceback in siphon.log' }
+    Write-Host '  ok: Siphon quit as the session ended and left the update for the next quit'
+}
+
+Check 'a downloaded update installs when Siphon quits' {
     $log = Join-Path $env:LOCALAPPDATA 'Siphon\siphon.log'
     $setupLog = Join-Path $env:LOCALAPPDATA 'Siphon\update\setup.log'
     Remove-Item $setupLog -ErrorAction SilentlyContinue
@@ -220,12 +290,12 @@ Check 'a downloaded update installs when Siphon closes' {
     Wait-For { (Test-Path $log) -and (Select-String -Quiet -SimpleMatch 'Siphon 99.0.0 is ready' $log) } 90 "'Siphon 99.0.0 is ready' in siphon.log"
     Write-Host '  ok: Siphon read the release at start, downloaded the installer and checked its sha256'
     Assert-SiphonWindow $app
-    $app.CloseMainWindow() | Out-Null
-    if (-not $app.WaitForExit(15000)) { $app.Kill(); throw 'Siphon.exe did not quit when its window was closed' }
-    Write-Host '  ok: Siphon quit'
-    Wait-Setup $setupLog 'update-on-close-setup.log'
+    Close-ToTray $app  # closing the window is not quitting: nothing is installed yet
+    if (Test-Path $setupLog) { throw 'the installer ran when the window was only closed' }
+    Stop-SiphonFromTray $app
+    Wait-Setup $setupLog 'update-on-quit-setup.log'
     Start-Sleep -Seconds 5
-    if (Get-Process Siphon -ErrorAction SilentlyContinue) { throw 'Siphon started again, though it was closed rather than restarted' }
+    if (Get-Process Siphon -ErrorAction SilentlyContinue) { throw 'Siphon started again, though it was quit rather than restarted' }
     Write-Host '  ok: Siphon stayed closed'
     Copy-Item $log (Join-Path $Out 'siphon-update.log')
     if ((Get-Content -Raw $log) -match 'Traceback') { throw 'a Python traceback in siphon.log' }
@@ -250,8 +320,7 @@ Check 'siphon-cli update installs a release and opens Siphon again' {
     Screenshot (Join-Path $Out 'siphon-after-update.png')
     Assert-SiphonWindow $app
     Write-Host '  ok: the installer opened Siphon again'
-    $app.CloseMainWindow() | Out-Null
-    if (-not $app.WaitForExit(15000)) { $app.Kill(); throw 'Siphon.exe did not quit when its window was closed' }
+    Stop-SiphonFromTray $app
 }
 
 Check 'uninstaller' {
