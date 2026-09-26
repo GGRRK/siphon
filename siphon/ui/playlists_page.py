@@ -20,6 +20,7 @@ _NARROW = "max-width: 520sp"
 
 
 def _first_cover(entries: list[tuple[Any, bool]]) -> Path | None:
+    """The song whose cover stands for the playlist when it has no picture of its own."""
     return next((song.path for song, missing in entries if not missing), None)
 
 
@@ -106,7 +107,7 @@ class PlaylistsPage(Adw.Bin):
                             subtitle=summary([song for song, _missing in entries]))
         row.playlist = playlist
         cover = Cover(self._art, 48)
-        cover.show(_first_cover(entries))
+        cover.show(_first_cover(entries), playlist.cover)
         row.add_prefix(cover)
         row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
         return row
@@ -196,7 +197,7 @@ class PlaylistView(Adw.NavigationPage):
         self.set_title(playlist.name)
         self._name.set_label(playlist.name)
         self._summary.set_label(summary([song for song, _missing in self._entries]))
-        self._cover.show(_first_cover(self._entries))
+        self._cover.show(_first_cover(self._entries), playlist.cover)
         playable = bool(self._playable())
         for name in ("play", "shuffle"):
             self._actions.lookup_action(name).set_enabled(playable)

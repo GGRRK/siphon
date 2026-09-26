@@ -15,7 +15,7 @@ from .library_page import LibraryPage
 from .music import Music
 from .nowplaying import NowPlaying
 from .playlists_page import PlaylistsPage
-from .songmenu import SongActions, quoted
+from .songmenu import SongActions
 
 _STOP_TIMEOUT = 10.0  # seconds to wait for cancelled downloads before closing anyway
 _NARROW = "max-width: 560sp"
@@ -35,7 +35,7 @@ class SiphonWindow(Adw.ApplicationWindow):
         self._toasts = Adw.ToastOverlay()
         self._stack = Adw.ViewStack(vexpand=True)
         self.downloads = DownloadPage(core, prefs, save_prefs, self.toast, self._toasts.add_toast, self.show_file,
-                                      music.add_file, music.set_root, self.save_playlist)
+                                      music, self.open_playlist)
         self.library = LibraryPage(music, art, prefs, save_prefs, lambda: self.show_page("download"))
         self.playlists = PlaylistsPage(music, art, self.toast)
         for name, title, icon, page in (
@@ -163,14 +163,6 @@ class SiphonWindow(Adw.ApplicationWindow):
         """Queue every supported link; returns the ones that were not links."""
         self.show_page("download")
         return self.downloads.queue_links(links)
-
-    def save_playlist(self, name: str, paths: list[Path]) -> bool:
-        playlist = self.music.change_playlists(self.music.playlists.create, name)
-        if playlist is None:
-            return False
-        self.music.change_playlists(self.music.playlists.add, playlist, paths)
-        self.toast(f"Saved the playlist {quoted(playlist.name)}", "Open", lambda: self.open_playlist(playlist))
-        return True
 
     # -- messages and files
 

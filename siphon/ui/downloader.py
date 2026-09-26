@@ -27,11 +27,13 @@ def unexpected(exc: BaseException) -> str:
 
 
 class Job:
-    def __init__(self, track, outdir: Path, fmt: str, row: TrackRow) -> None:
+    def __init__(self, track, outdir: Path, fmt: str, row: TrackRow,
+                 on_file: Callable[[Path], None] | None = None) -> None:
         self.track = track
         self.outdir = outdir
         self.fmt = fmt
         self.row = row
+        self.on_file = on_file  # called with the file each time the job succeeds, after the Downloader's own on_file
         self.path: Path | None = None
         self._lock = threading.Lock()
         self.reset()
@@ -115,6 +117,8 @@ class Downloader:
             job.path = outcome
             job.row.set_state(State.ALREADY if job.already else State.DONE)
             self._on_file(outcome)
+            if job.on_file is not None:
+                job.on_file(outcome)
         elif job.cancel.is_set() or isinstance(outcome, self._core.Cancelled):
             job.row.set_state(State.CANCELLED)
         else:

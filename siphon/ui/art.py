@@ -2,9 +2,12 @@
 
 Scrolling a long list binds and rebinds rows faster than covers can load,
 so the newest request is served first, and a row that moves on to another
-song withdraws its old request.
+song withdraws its old request. Besides songs' embedded covers, image files
+(a playlist's picture) are shown as they are, keyed on their mtime so a
+replaced picture decodes afresh.
 """
 
+import os
 import threading
 from collections import OrderedDict
 from collections.abc import Callable
@@ -12,7 +15,7 @@ from pathlib import Path
 
 from gi.repository import Adw, Gdk, GdkPixbuf, GLib, Gtk
 
-Key = tuple[Path, int]
+Key = tuple[Path, int, int | None]  # file, pixels, and an image file's mtime (None: a song, cover_file finds its cover)
 Deliver = Callable[[Gdk.Texture | None], None]
 Ticket = tuple[Key, Deliver]
 
@@ -30,11 +33,12 @@ class CoverArt:
         for n in range(workers):
             threading.Thread(target=self._work, name=f"siphon-covers-{n}", daemon=True).start()
 
-    def load(self, path: Path, size: int, deliver: Deliver) -> Ticket | None:
-        """Calls `deliver` with the texture (None when the song has no cover): at once when cached, else later.
+    def load(self, path: Path, size: int, deliver: Deliver, mtime: int | None = None) -> Ticket | None:
+        """Calls `deliver` with the texture (None when there is none): at once when cached, else later.
 
-        A later delivery returns a ticket that `cancel` takes back."""
-        key = (path, size * _SCALE)
+        path is a song, or with its mtime an image file to show as it is. A later delivery returns a ticket
+        that `cancel` takes back."""
+        key = (path, size * _SCALE, mtime)
         if key in self._cache:
             self._cache.move_to_end(key)
             deliver(self._cache[key])
@@ -76,9 +80,9 @@ class CoverArt:
             deliver(texture)
         return GLib.SOURCE_REMOVE
 
-    def _decode(self, path: Path, px: int) -> Gdk.Texture | None:  # worker thread
+    def _decode(self, path: Path, px: int, mtime: int | None) -> Gdk.Texture | None:  # worker thread
         try:
-            file = self._cover_file(path)
+            file = path if mtime is not None else self._cover_file(path)
             if file is None:
                 return None
             _fmt, width, height = GdkPixbuf.Pixbuf.get_file_info(str(file))
@@ -106,27 +110,43 @@ class Cover(Adw.Bin):
         self.set_size_request(size, size)
         self._art = art
         self._size = size
-        self._path: Path | None = None
+        self._shown: tuple[Path | None, Path | None, int | None] = (None, None, None)  # song, picture, its mtime
         self._ticket: Ticket | None = None
         self._image = Gtk.Image(halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER,
                                 accessible_role=Gtk.AccessibleRole.PRESENTATION)
         self.set_child(self._image)
         self._placeholder()
 
-    def show(self, path: Path | None) -> None:
-        if path == self._path:
+    def show(self, path: Path | None, picture: Path | None = None) -> None:
+        """The song's cover; picture, an image file, instead when there is one that decodes."""
+        mtime = _mtime(picture) if picture is not None else None
+        shown = (path, picture if mtime is not None else None, mtime)
+        if shown == self._shown:
             return
         if self._ticket is not None:
             self._art.cancel(self._ticket)
             self._ticket = None
-        self._path = path
+        self._shown = shown
         self._placeholder()
-        if path is not None:
-            self._ticket = self._art.load(path, self._size, lambda texture: self._loaded(path, texture))
+        self._request(shown[1] is not None)
 
-    def _loaded(self, path: Path, texture: Gdk.Texture | None) -> None:
+    def _request(self, picture: bool) -> None:
+        shown = self._shown
+        path, file, mtime = shown
+        if not picture and path is None:
+            return
+        ticket = self._art.load(file if picture else path, self._size,
+                                lambda texture: self._loaded(shown, picture, texture), mtime if picture else None)
+        if ticket is not None:  # else it was delivered already, and may have asked for the song's cover since
+            self._ticket = ticket
+
+    def _loaded(self, shown: tuple, picture: bool, texture: Gdk.Texture | None) -> None:
         self._ticket = None
-        if path != self._path or texture is None:
+        if shown != self._shown:
+            return
+        if texture is None:
+            if picture:  # a damaged picture: the song's cover after all
+                self._request(False)
             return
         self.remove_css_class("placeholder")
         self._image.set_from_paintable(texture)
@@ -136,3 +156,10 @@ class Cover(Adw.Bin):
         self.add_css_class("placeholder")
         self._image.set_from_icon_name("audio-x-generic-symbolic")
         self._image.set_pixel_size(max(16, self._size * 3 // 8))
+
+
+def _mtime(file: Path) -> int | None:
+    try:
+        return os.stat(file).st_mtime_ns
+    except OSError:
+        return None

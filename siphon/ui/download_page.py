@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk
 
@@ -10,6 +11,7 @@ from .. import settings
 from .block import LinkBlock
 from .downloader import Downloader
 from .fmt import pretty_path
+from .music import Music
 
 _FORMAT_HINTS = {
     "mp3": "Plays everywhere; about twice the size, no better sound",
@@ -33,8 +35,7 @@ class DownloadPage(Gtk.Box):
 
     def __init__(self, core: ModuleType, prefs: settings.Settings, save_prefs: Callable[[], None],
                  toast: Callable[..., Adw.Toast], add_toast: Callable[[Adw.Toast], None],
-                 show_file: Callable[[Path], None], on_file: Callable[[Path], None],
-                 on_folder: Callable[[Path], None], save_playlist: Callable[[str, list[Path]], bool]) -> None:
+                 show_file: Callable[[Path], None], music: Music, open_playlist: Callable[[Any], None]) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.core = core
         self._prefs = prefs
@@ -42,9 +43,9 @@ class DownloadPage(Gtk.Box):
         self.toast = toast
         self._add_toast = add_toast
         self.show_file = show_file
-        self._on_folder = on_folder
-        self.save_playlist = save_playlist
-        self.downloader = Downloader(core, self.report_error, on_file)
+        self.music = music
+        self.open_playlist = open_playlist
+        self.downloader = Downloader(core, self.report_error, music.add_file)
         self._blocks: list[LinkBlock] = []
         self._seen: set[str] = set()  # links queued or offered from the clipboard this session
         self._error_toast: Adw.Toast | None = None
@@ -205,7 +206,7 @@ class DownloadPage(Gtk.Box):
         self._prefs.folder = Path(folder.get_path())
         self._show_settings()
         self._save_prefs()
-        self._on_folder(self._prefs.folder)
+        self.music.set_root(self._prefs.folder)
 
     # -- link entry, clipboard, drops
 
