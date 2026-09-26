@@ -1,14 +1,16 @@
-"""The two small questions the music pages ask: a playlist name, and "are you sure?"."""
+"""The two small questions the pages ask: a name (a playlist's, an equalizer preset's), and "are you sure?"."""
 
 from collections.abc import Callable
 
 from gi.repository import Adw, Gtk
 
 
-def ask_name(parent: Gtk.Widget, heading: str, confirm: str, done: Callable[[str], None], initial: str = "") -> None:
-    """Asks for a playlist name; `done` gets the trimmed name, never an empty one."""
-    entry = Gtk.Entry(text=initial, activates_default=True, placeholder_text="Playlist name")
-    entry.update_property([Gtk.AccessibleProperty.LABEL], ["Playlist name"])
+def ask_name(parent: Gtk.Widget, heading: str, confirm: str, done: Callable[[str], None], initial: str = "",
+             label: str = "Playlist name", problem: Callable[[str], str] | None = None) -> None:
+    """Asks for a name; `done` gets the trimmed name, never an empty one. `problem` gives the sentence that says
+    what is wrong with a name, or "": it shows in the dialog while the button stays off."""
+    entry = Gtk.Entry(text=initial, activates_default=True, placeholder_text=label)
+    entry.update_property([Gtk.AccessibleProperty.LABEL], [label])
     dialog = Adw.AlertDialog(heading=heading, extra_child=entry)
     dialog.add_response("cancel", "Cancel")
     dialog.add_response("ok", confirm)
@@ -16,11 +18,16 @@ def ask_name(parent: Gtk.Widget, heading: str, confirm: str, done: Callable[[str
     dialog.set_default_response("ok")
     dialog.set_close_response("cancel")
 
+    def fault() -> str:
+        name = entry.get_text().strip()
+        return "" if problem is None or not name else problem(name)
+
     def sync(*_args) -> None:
-        dialog.set_response_enabled("ok", bool(entry.get_text().strip()))
+        dialog.set_body(fault())
+        dialog.set_response_enabled("ok", bool(entry.get_text().strip()) and not dialog.get_body())
 
     def respond(_dialog: Adw.AlertDialog, response: str) -> None:
-        if response == "ok" and entry.get_text().strip():
+        if response == "ok" and entry.get_text().strip() and not fault():
             done(entry.get_text().strip())
 
     entry.connect("changed", sync)
