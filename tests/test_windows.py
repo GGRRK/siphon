@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 import siphon
-from siphon import core, engine, library, names, paths, playlists as playlists_mod
+from siphon import core, engine, library, names, paths, playlists as playlists_mod, updater
 from siphon.core import SiphonError, Track
 from siphon.library import Library, Song
 from siphon.playlists import Playlists
@@ -88,11 +88,80 @@ def test_setup_environment_puts_the_bundled_tools_first(win, tmp_path, monkeypat
     assert paths.no_window() == 0x08000000
 
 
-def test_setup_environment_from_source_changes_nothing(monkeypatch):
+def test_setup_environment_from_source_only_loads_the_engine(monkeypatch):
+    activated = []
     monkeypatch.setenv("PATH", "/usr/bin")
-    monkeypatch.setattr(engine, "activate", lambda: pytest.fail("activated from source"))
+    monkeypatch.setattr(engine, "activate", lambda: activated.append(True))
     paths.setup_environment()
-    assert os.environ["PATH"] == "/usr/bin"
+    assert os.environ["PATH"] == "/usr/bin" and activated == [True]  # a Linux venv uses downloaded engines too
+
+
+# ---------------------------------------------------------------- Siphon's own updates
+
+
+@pytest.fixture
+def frozen(win, monkeypatch, tmp_path):
+    """A packaged Siphon.exe in <tmp>/Programs/Siphon; returns a setter for the installer's uninstall entry."""
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "Programs" / "Siphon" / "Siphon.exe"))
+    return lambda where: monkeypatch.setattr(updater, "_registered_location", lambda: where)
+
+
+@pytest.mark.parametrize("registered, kind", [
+    ("{bundle}", "installer"),
+    ("{bundle}\\", "installer"),  # Inno Setup writes InstallLocation with a trailing backslash
+    ("{upper}", "installer"),  # Windows paths ignore case
+    ("C:\\Users\\me\\AppData\\Local\\Programs\\Siphon\\", "portable"),  # installed, but this copy is a zip
+    ("", "portable"),  # never installed
+])
+def test_windows_installed_or_portable(frozen, tmp_path, registered, kind):
+    bundle = str(tmp_path / "Programs" / "Siphon")
+    frozen(registered.format(bundle=bundle, upper=bundle.upper()))
+    assert updater.install_kind() == kind
+
+
+@pytest.mark.linux  # a symlink stands in for an 8.3 short name: one folder, two spellings
+def test_windows_installed_under_another_name_for_the_same_folder(frozen, tmp_path):
+    bundle = tmp_path / "Programs" / "Siphon"
+    bundle.mkdir(parents=True)
+    (tmp_path / "SIPHON~1").symlink_to(bundle, target_is_directory=True)
+    frozen(str(tmp_path / "SIPHON~1"))
+    assert updater.install_kind() == "installer"
+
+
+def test_windows_from_source_never_updates_itself(win):
+    assert updater.install_kind() == ""  # no bin/siphon there to install a fetched release
+
+
+def test_windows_updates_download_to_localappdata(win, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", "C:\\Users\\me\\AppData\\Local")
+    assert same_windows_path(updater.update_dir(), "C:\\Users\\me\\AppData\\Local\\Siphon\\update")
+
+
+@pytest.mark.parametrize("relaunch", [False, True])
+def test_windows_installer_runs_silently_after_siphon(win, monkeypatch, relaunch):
+    monkeypatch.setenv("LOCALAPPDATA", "C:\\Users\\me\\AppData\\Local")
+    started = []
+    monkeypatch.setattr(updater.subprocess, "Popen", lambda command, **kwargs: started.append((command, kwargs)))
+    installer = Path("C:/Users/me/AppData/Local/Siphon/update/Siphon-0.2.0-Setup.exe")
+    updater.run_installer(installer, relaunch)
+    (command, kwargs), = started
+    assert command[0] == str(installer)
+    assert command[1:7] == ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS",
+                            "/NORESTARTAPPLICATIONS", f"/WAITPID={os.getpid()}"]
+    assert same_windows_path(command[7].removeprefix("/LOG="),
+                             "C:\\Users\\me\\AppData\\Local\\Siphon\\update\\setup.log")
+    assert command[8:] == (["/RELAUNCH"] if relaunch else [])
+    # detached, without a console, holding none of Siphon's files open
+    assert kwargs["creationflags"] == 0x00000208 and kwargs["close_fds"]
+    assert kwargs["stdin"] == kwargs["stdout"] == kwargs["stderr"] == subprocess.DEVNULL
+
+
+def test_windows_installer_honours_the_switches_siphon_passes():
+    script = (ROOT / "packaging" / "windows" / "siphon.iss").read_text(encoding="utf-8")
+    assert f"AppId={{{updater.APP_ID}" in script  # the uninstall entry install_kind() looks for
+    assert "{param:WAITPID|0}" in script and "HasSwitch('/RELAUNCH')" in script
+    assert 'Filename: "{app}\\Siphon.exe"; Flags: nowait; Check: Relaunch' in script
 
 
 def test_pretty_path_shows_windows_folders_in_full(win):

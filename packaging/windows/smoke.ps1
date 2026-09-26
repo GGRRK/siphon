@@ -1,7 +1,9 @@
 <#
 Smoke test of the packaged Windows build: the portable zip's command line (versions, the selftest with a
-real YouTube download, a Spotify track), a downloaded engine update, then the installer, the installed
-window (with a screenshot) and the uninstaller. Nothing makes a sound. Every check runs even when an
+real YouTube download, a Spotify track, an update check against GitHub), a downloaded engine update, then
+the installer, the installed window (with a screenshot), Siphon updating itself from a local test release
+(installed as it closes; and by siphon-cli update, which opens it again) and the uninstaller. Nothing
+makes a sound. Every check runs even when an
 earlier one failed; the script fails at the end if any did. The workflow runs it with a PATH that holds
 only Windows itself and MSYS2 moved away, which proves the app needs nothing else.
 #>
@@ -50,6 +52,45 @@ function Screenshot([string] $path) {
     $graphics.Dispose(); $bitmap.Dispose()
 }
 
+function Wait-For([scriptblock] $condition, [int] $seconds, [string] $what) {
+    for ($i = 0; $i -lt $seconds; $i++) {
+        if (& $condition) { return }
+        Start-Sleep -Seconds 1
+    }
+    throw "no $what within $seconds s"
+}
+
+function Write-TestRelease([string] $path) {
+    # A release in GitHub's JSON, newer than any real one, whose installer is the one this build made;
+    # SIPHON_UPDATE_SOURCE (siphon/updater.py) makes Siphon read it instead of GitHub's latest release.
+    $file = (Resolve-Path $Setup).Path
+    @{
+        tag_name = 'v99.0.0'; draft = $false; prerelease = $false
+        html_url = 'https://github.com/GGRRK/siphon/releases/tag/v99.0.0'
+        assets = @(@{
+            name = 'Siphon-99.0.0-Setup.exe'; size = (Get-Item $file).Length
+            digest = 'sha256:' + (Get-FileHash -Algorithm SHA256 $file).Hash.ToLower()
+            browser_download_url = [Uri]::new($file, [UriKind]::Absolute).AbsoluteUri
+        })
+    } | ConvertTo-Json -Depth 4 | Set-Content -Encoding utf8 $path
+    return [Uri]::new((Resolve-Path $path).Path, [UriKind]::Absolute).AbsoluteUri
+}
+
+function Assert-SilentSetup {
+    # /VERYSILENT: no wizard, no message box - no visible window of the installer's processes at all
+    $shown = @(Get-Process -Name 'Siphon-99.0.0-Setup*' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 })
+    if ($shown.Count) {
+        Screenshot (Join-Path $Out 'setup-window.png')
+        throw "the installer showed a window: '$($shown[0].MainWindowTitle)'"
+    }
+}
+
+function Wait-Setup([string] $setupLog, [string] $copy) {
+    Wait-For { Assert-SilentSetup; (Test-Path $setupLog) -and (Select-String -Quiet -SimpleMatch 'Log closed.' $setupLog) } 180 'finished silent install'
+    Copy-Item $setupLog (Join-Path $Out $copy)
+    Expect (Get-Content -Raw $setupLog) 'Installation process succeeded' 'the silent install succeeded, without a window'
+}
+
 # The portable zip, unpacked to a path with a space in it.
 $root = Join-Path ([IO.Path]::GetTempPath()) 'Siphon smoke'
 Remove-Item -Recurse -Force $root -ErrorAction SilentlyContinue
@@ -73,6 +114,21 @@ Check 'selftest --net' {
     Expect $report 'ok\s+download\s+.*opus, 21\d\.\d s' 'a real YouTube download as Opus'
     Expect $report 'ok\s+challenge\s+.*solved by quickjs' 'QuickJS solved the YouTube challenge'
     Expect $report 'all checks passed' 'every selftest check'
+}
+
+Check 'update check against GitHub' {
+    Write-Host '> siphon-cli.exe update'
+    $lines = & $cli update 2>&1 | ForEach-Object { "$_" }
+    $code = $LASTEXITCODE
+    $lines | Write-Host
+    $text = $lines -join "`n"
+    if ($text -match "GitHub's rate limit") {  # 60 requests an hour per address, shared by the runners
+        Write-Host "::warning::GitHub's API rate limit was reached, so the update check was not tried"
+        return
+    }
+    if ($code -ne 0) { throw "siphon-cli update exited with $code" }
+    # This build is no older than the latest release, and a portable copy never changes itself.
+    Expect $text '(?m)^Siphon \d+\.\d+\.\d+ is (up to date \(latest release \d+\.\d+\.\d+\)|available: https://github\.com/GGRRK/siphon/releases/tag/v\d+\.\d+\.\d+)' 'the latest release, read and compared'
 }
 
 Check 'Spotify track as M4A' {
@@ -153,6 +209,49 @@ Check 'the installed window in dark mode, with GTK debug output' {
     $debug = @(Get-Content $log | Select-String -SimpleMatch -- '-DEBUG').Count
     if (-not $debug) { throw 'GTK debug output did not reach siphon.log' }
     Write-Host "  ok: $debug GLib/GTK debug lines in siphon.log"
+}
+
+Check 'a downloaded update installs when Siphon closes' {
+    $log = Join-Path $env:LOCALAPPDATA 'Siphon\siphon.log'
+    $setupLog = Join-Path $env:LOCALAPPDATA 'Siphon\update\setup.log'
+    Remove-Item $setupLog -ErrorAction SilentlyContinue
+    $env:SIPHON_UPDATE_SOURCE = Write-TestRelease (Join-Path $Out 'release.json')
+    try { $app = Start-Process "$installed\Siphon.exe" -PassThru } finally { Remove-Item Env:SIPHON_UPDATE_SOURCE }
+    Wait-For { (Test-Path $log) -and (Select-String -Quiet -SimpleMatch 'Siphon 99.0.0 is ready' $log) } 90 "'Siphon 99.0.0 is ready' in siphon.log"
+    Write-Host '  ok: Siphon read the release at start, downloaded the installer and checked its sha256'
+    Assert-SiphonWindow $app
+    $app.CloseMainWindow() | Out-Null
+    if (-not $app.WaitForExit(15000)) { $app.Kill(); throw 'Siphon.exe did not quit when its window was closed' }
+    Write-Host '  ok: Siphon quit'
+    Wait-Setup $setupLog 'update-on-close-setup.log'
+    Start-Sleep -Seconds 5
+    if (Get-Process Siphon -ErrorAction SilentlyContinue) { throw 'Siphon started again, though it was closed rather than restarted' }
+    Write-Host '  ok: Siphon stayed closed'
+    Copy-Item $log (Join-Path $Out 'siphon-update.log')
+    if ((Get-Content -Raw $log) -match 'Traceback') { throw 'a Python traceback in siphon.log' }
+}
+
+Check 'siphon-cli update installs a release and opens Siphon again' {
+    $setupLog = Join-Path $env:LOCALAPPDATA 'Siphon\update\setup.log'
+    Remove-Item $setupLog -ErrorAction SilentlyContinue
+    $release = Join-Path $Out 'release.json'
+    $env:SIPHON_UPDATE_SOURCE = Write-TestRelease $release
+    try { $text = Run "$installed\siphon-cli.exe" @('update') } finally { Remove-Item Env:SIPHON_UPDATE_SOURCE }
+    Remove-Item $release  # the reopened Siphon inherits the variable from the installer: it must not update again
+    Expect $text 'Siphon 99\.0\.0 is being installed; it opens when the installer is done\.' 'the installed copy started the installer and exited'
+    Wait-Setup $setupLog 'update-restart-setup.log'
+    $app = $null
+    for ($i = 0; $i -lt 60 -and -not $app; $i++) {
+        Start-Sleep -Seconds 1
+        $app = Get-Process Siphon -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq "$installed\Siphon.exe" } | Select-Object -First 1
+    }
+    if (-not $app) { throw 'the installer did not open Siphon again within 60 s' }
+    Start-Sleep -Seconds 10
+    Screenshot (Join-Path $Out 'siphon-after-update.png')
+    Assert-SiphonWindow $app
+    Write-Host '  ok: the installer opened Siphon again'
+    $app.CloseMainWindow() | Out-Null
+    if (-not $app.WaitForExit(15000)) { $app.Kill(); throw 'Siphon.exe did not quit when its window was closed' }
 }
 
 Check 'uninstaller' {

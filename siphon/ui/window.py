@@ -23,6 +23,9 @@ _NARROW = "max-width: 560sp"
 
 
 class SiphonWindow(Adw.ApplicationWindow):
+    # Closing was called off to keep downloads running (a restart to update waits for the next time).
+    __gsignals__ = {"close-cancelled": (GObject.SignalFlags.RUN_FIRST, None, ())}
+
     def __init__(self, app: Adw.Application, core: ModuleType, prefs: settings.Settings,
                  save_prefs: Callable[[], None], music: Music) -> None:
         super().__init__(application=app, title="Siphon", default_width=820, default_height=1080)
@@ -199,6 +202,17 @@ class SiphonWindow(Adw.ApplicationWindow):
         launcher = Gtk.FileLauncher.new(Gio.File.new_for_path(str(self._prefs.folder)))
         launcher.launch(self, None, self._on_launched, launcher.launch_finish)
 
+    def open_page(self, uri: str) -> None:
+        launcher = Gtk.UriLauncher.new(uri)
+        launcher.launch(self, None, self._on_page_launched)
+
+    def _on_page_launched(self, launcher: Gtk.UriLauncher, result: Gio.AsyncResult) -> None:
+        try:
+            launcher.launch_finish(result)
+        except GLib.Error as error:
+            if not is_dismissal(error):
+                self.toast("Could not open the page.")
+
     def _on_launched(self, _launcher: Gtk.FileLauncher, result: Gio.AsyncResult,
                      finish: Callable[[Gio.AsyncResult], bool]) -> None:
         try:
@@ -261,6 +275,7 @@ class SiphonWindow(Adw.ApplicationWindow):
 
     def _on_close_response(self, _dialog: Adw.AlertDialog, response: str) -> None:
         if response != "stop":
+            self.emit("close-cancelled")
             return
         self.downloads.cancel_all()
         self.music.player.stop()
