@@ -44,8 +44,9 @@ The Windows build is made by `.github/workflows/windows.yml` on GitHub Actions: 
 ## Use
 
 - `siphon` opens the window (or "Siphon" in the app launcher). Paste a link, press Enter. A link on the clipboard is offered when the window gets focus; dropping a link on the window queues it too. Two downloads run at once, the rest wait.
+- A playlist link (Spotify, YouTube, YouTube Music, SoundCloud…) becomes a playlist of the same name, with the playlist's picture, as soon as it is read; each song joins it as it finishes, in the playlist's order. Pasting the link again (in any form: `spotify:` URI, `?si=`, music.youtube.com) adds only what is new to the same playlist.
 - `siphon URL...` queues links in the running window (or opens it).
-- `siphon get URL... [-f mp3|m4a|opus|flac|best] [-o DIR]` downloads in the terminal.
+- `siphon get URL... [-f mp3|m4a|opus|flac|best] [-o DIR]` downloads in the terminal; a playlist link also writes its playlist into `DIR/Playlists`, the same way.
 - `siphon selftest [--net]` checks ffmpeg, ffprobe, the JavaScript runtime and libmpv, then makes, tags, scans, lists and silently plays a 2 s tone (`--net` also downloads a YouTube music video and has the JavaScript runtime solve its challenge); exit status 0 when everything works. `siphon --version` prints Siphon's and yt-dlp's versions.
 
 ## Listen
@@ -54,7 +55,7 @@ The music folder is the download folder (`~/Music` unless you change it under Sa
 
 - **Library**: every song in the music folder and its subfolders, the files you already had included. It is remembered between runs (`~/.cache/siphon/library.json`; Windows: `%LOCALAPPDATA%\Siphon\cache`), so it shows at once when Siphon opens, while a rescan picks up what changed. New downloads appear as they finish. Search matches title, artist and album, ignoring case and accents; sort by Recently Added, Title or Artist. F5 (or Refresh Library in the menu) rescans.
 - **Song menu** (the ⋮ button or a right-click): Play Next, Add to Queue, Add to Playlist, Show in Folder, Move to Trash (also takes the song out of every playlist).
-- **Playlists** live in `~/Music/Playlists` as `.m3u8` files with paths relative to that folder, so other players (mpv, VLC, Strawberry…) open them, and playlists they save there show up in Siphon. Create, rename, add songs, reorder (drag, or Move Up/Down), remove, delete (to the Trash). A song whose file is gone stays listed, dimmed, and is skipped. A downloaded album or playlist has a **Save as Playlist** button.
+- **Playlists** live in `~/Music/Playlists` as `.m3u8` files with paths relative to that folder, so other players (mpv, VLC, Strawberry…) open them, and playlists they save there show up in Siphon. Create, rename, add songs, reorder (drag, or Move Up/Down), remove, delete (to the Trash). A song whose file is gone stays listed, dimmed, and is skipped. A downloaded album has a **Save as Playlist** button, which keeps the album cover as the playlist's picture: `Name.jpg` beside `Name.m3u8`, named in its `#EXTIMG` line.
 - **Player** (libmpv, gapless): the now-playing bar has seek, shuffle, repeat (off, all, one), volume and Up Next. Space plays or pauses, Ctrl+Left/Right skip, Ctrl+F searches the library. A file that can't play shows a message and the next song starts. Volume, shuffle, repeat, sort and the last page are remembered.
 - **Media keys and bars**: Siphon speaks MPRIS on the session bus as `siphon`, so media keys that run `playerctl` and bar widgets show and control it, cover art included (`playerctl --player=siphon play-pause`). Windows has no MPRIS, so media keys don't reach Siphon there yet.
 

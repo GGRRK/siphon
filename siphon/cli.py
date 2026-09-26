@@ -4,7 +4,10 @@ import argparse
 import sys
 from pathlib import Path
 
-from .core import FORMATS, Progress, SiphonError, default_outdir, download, resolve
+from .core import (FORMATS, Progress, Resolved, SiphonError, cover_image, default_outdir, download, resolve,
+                   source_link)
+from .library import PLAYLISTS_DIR
+from .playlists import LinkedPlaylist, Playlists
 
 
 class _Line:
@@ -27,6 +30,23 @@ class _Line:
 
     def finish(self, text: str) -> None:
         print(f"\r{self.label}  {text}\x1b[K" if self.live else f"{self.label}  {text}", flush=True)
+
+
+def _link(found: Resolved, url: str, outdir: Path) -> LinkedPlaylist | None:
+    """The playlist a playlist link makes in outdir's Playlists folder, with its picture, as the window does."""
+    try:
+        linked = Playlists(outdir / PLAYLISTS_DIR).link(found.title, source_link(url))
+        picture = cover_image([found.cover_url]) if found.cover_url else None
+        if picture:
+            linked.set_cover(picture)
+        playlist = linked.playlist()
+    except OSError as e:
+        print(f"Couldn't save the playlist: {e.strerror or e}.", file=sys.stderr)
+        return None
+    if playlist is None:  # deleted the moment it was made
+        return None
+    print(f"Playlist: {playlist.file}" + ("" if linked.created else " (already there: new songs are added)"))
+    return linked
 
 
 def main(argv: list[str]) -> int:
@@ -52,6 +72,7 @@ def main(argv: list[str]) -> int:
             if found.note:
                 print(found.note)
             target = outdir  # no per-link subfolders, like the window
+            linked = _link(found, url, target) if found.kind == "playlist" else None
             for n, track in enumerate(found.tracks, 1):
                 name = f"{track.artist} - {track.title}" if track.artist else track.title
                 line = _Line(f"[{n}/{len(found.tracks)}] {name}" if found.folder else name)
@@ -61,6 +82,12 @@ def main(argv: list[str]) -> int:
                 except SiphonError as e:
                     line.finish(f"failed: {e}")
                     failures += 1
+                    continue
+                if linked is not None:
+                    try:
+                        linked.add({n - 1: path})
+                    except OSError as e:
+                        print(f"Couldn't add it to the playlist: {e.strerror or e}.", file=sys.stderr)
     except KeyboardInterrupt:
         print("\nCancelled.", file=sys.stderr)
         return 130
