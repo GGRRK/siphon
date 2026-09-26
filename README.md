@@ -58,6 +58,7 @@ The music folder is the download folder (`~/Music` unless you change it under Sa
 - **Song menu** (the ⋮ button or a right-click): Play Next, Add to Queue, Add to Playlist, Show in Folder, Move to Trash (also takes the song out of every playlist).
 - **Playlists** live in `~/Music/Playlists` as `.m3u8` files with paths relative to that folder, so other players (mpv, VLC, Strawberry…) open them, and playlists they save there show up in Siphon. Create, rename, add songs, reorder (drag, or Move Up/Down), remove, delete (to the Trash). A song whose file is gone stays listed, dimmed, and is skipped. A downloaded album has a **Save as Playlist** button, which keeps the album cover as the playlist's picture: `Name.jpg` beside `Name.m3u8`, named in its `#EXTIMG` line.
 - **Player** (libmpv, gapless): the now-playing bar has seek, shuffle, repeat (off, all, one), volume and Up Next. Space plays or pauses, Ctrl+Left/Right skip, Ctrl+F searches the library. A file that can't play shows a message and the next song starts. Volume, shuffle, repeat, sort and the last page are remembered.
+- **Equalizer**: ten bands from 31 Hz to 16 kHz (±12 dB) with eight built-in presets and your own saved ones, remembered between runs; boosts never clip (the whole curve is lowered by its highest point), and a flat or switched-off equalizer plays the sound untouched.
 - **Media keys and bars**: Siphon speaks MPRIS on the session bus as `siphon`, so media keys that run `playerctl` and bar widgets show and control it, cover art included (`playerctl --player=siphon play-pause`). Windows has no MPRIS, so media keys don't reach Siphon there yet.
 
 When downloads start failing with "YouTube refused the download", run Update Engine: YouTube changes often and yt-dlp follows within days. From source it upgrades yt-dlp with pip; a packaged build downloads the newest yt-dlp wheel from PyPI, checks its sha256 and uses it from the next start. Siphon already retries refused downloads with a second YouTube client.
@@ -70,7 +71,7 @@ When downloads start failing with "YouTube refused the download", run Update Eng
 | `siphon/spotify.py` | Spotify link parsing + the public embed page (no API key) |
 | `siphon/match.py` | finding the right YouTube upload for a song (duration, title/artist tokens, official "Topic" channels) |
 | `siphon/library.py`, `siphon/playlists.py`, `siphon/covers.py` | the music folder: cached tag scan and search, M3U8 playlists, embedded covers |
-| `siphon/player.py`, `siphon/mpris.py` | playback through libmpv (queue, shuffle, repeat) and its MPRIS face |
+| `siphon/player.py`, `siphon/eq.py`, `siphon/mpris.py` | playback through libmpv (queue, shuffle, repeat, equalizer) and its MPRIS face |
 | `siphon/app.py`, `siphon/ui/` | the libadwaita window |
 | `siphon/paths.py`, `siphon/names.py` | per-platform folders and start-up (a packaged build's `bin/`), Windows file-name rules |
 | `siphon/engine.py` | engine updates for packaged builds: verified yt-dlp wheels from PyPI |
