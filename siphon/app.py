@@ -132,6 +132,8 @@ class SiphonApp(Adw.Application):
         self.music.rescan()
 
     def do_shutdown(self) -> None:
+        if self.tray is not None:
+            self.tray.quitting()  # Windows: a Siphon started from now on runs by itself
         self.player.stop()
         self.player.shutdown()
         if self._mpris is not None:

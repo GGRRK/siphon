@@ -218,6 +218,12 @@ class App(siphon_app.SiphonApp):
         bar = win._now_playing
         art = bar._cover._art
         self.other_side = (NotificationArea if platform == "windows" else Bar)(self)
+        told = self.tray.quitting
+
+        def quitting():  # first thing as Siphon quits: a Siphon started now must not hand this one its links
+            seen["tray told first"] = self.player._mpv is not None
+            told()
+        self.tray.quitting = quitting
         seen["tray"] = run_until(lambda: self.tray.available) and self.hides_on_close()
         moves = []
         bar._seek.connect("value-changed", lambda scale: moves.append(scale.get_value()))
@@ -292,6 +298,6 @@ def test_a_window_closed_to_the_tray_rests_and_comes_back_live(display, bus, tmp
     seen = json.loads(done.stdout.splitlines()[-1])
     back = {"cached": True, "hidden": True, "cache while hidden": 0, "rested": True, "shown": True,
             "caught up": True, "live": True}
-    assert seen == {"tray": True, "playing": True, "icon clicked": back, "Show Siphon": back, "no yt-dlp": True,
+    assert seen == {"tray": True, "tray told first": True, "playing": True, "icon clicked": back, "Show Siphon": back, "no yt-dlp": True,
                     "ctrl+q": ["<Control>q"], "exit": 0, "quit in time": True, "mpv stopped": True,
                     "threads left": [], "windows left": 0, "tray icon left": False}, done.stderr

@@ -89,6 +89,7 @@ class Backend(Protocol):
 
     def update(self, state: State) -> None: ...
     def balloon(self, heading: str, body: str) -> bool: ...
+    def quitting(self) -> None: ...
     def close(self) -> None: ...
 
 
@@ -129,6 +130,12 @@ class Tray(GObject.Object):
         """The activation token the tray host gave with the last click (Wayland), once."""
         token, self._token = self._token, ""
         return token
+
+    def quitting(self) -> None:
+        """Siphon's main loop is over (the start of its shutdown): on Windows a Siphon started from now on runs
+        by itself instead of handing its links to this one."""
+        if self._changed:
+            self._backend.quitting()
 
     def close(self) -> None:
         """Remove the icon; nothing is emitted afterwards."""

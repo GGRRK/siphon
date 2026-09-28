@@ -231,6 +231,9 @@ class StatusNotifierItem:
     def balloon(self, _heading: str, _body: str) -> bool:
         return False  # the app sends the desktop a notification of its own
 
+    def quitting(self) -> None:
+        pass  # a Windows matter: GApplication keeps one Siphon per session on Linux
+
     def close(self) -> None:
         self._closed = True
         if self._signals:

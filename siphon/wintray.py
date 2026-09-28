@@ -60,6 +60,7 @@ WS_EX_TOOLWINDOW = 0x80
 SMTO_ABORTIFHUNG = 0x2
 MSGFLT_ALLOW = 1
 ERROR_ALREADY_EXISTS = 183
+WAIT_OBJECT_0, WAIT_ABANDONED = 0x00, 0x80
 
 CLASS_NAME = "io.github.ggrrk.Siphon.Tray"  # the smoke test and a second Siphon find the window by it
 MUTEX_NAME = "Local\\io.github.ggrrk.Siphon"  # Local: one Siphon per session, not per machine
@@ -111,6 +112,8 @@ class Win32:
         for dll, name, restype, *argtypes in (
                 (kernel32, "GetModuleHandleW", HINSTANCE, c_wchar_p),
                 (kernel32, "CreateMutexW", HANDLE, c_void_p, BOOL, c_wchar_p),
+                (kernel32, "WaitForSingleObject", DWORD, HANDLE, DWORD),
+                (kernel32, "ReleaseMutex", BOOL, HANDLE),
                 (user32, "RegisterClassExW", ATOM, POINTER(WNDCLASSEXW)),
                 (user32, "UnregisterClassW", BOOL, c_wchar_p, HINSTANCE),
                 (user32, "CreateWindowExW", HWND, DWORD, c_wchar_p, c_wchar_p, DWORD, c_int, c_int, c_int, c_int,
@@ -182,23 +185,39 @@ def _log(message: str) -> None:
     print(f"siphon: {message}", file=sys.stderr, flush=True)
 
 
+_api = None
 _mutex = None  # held for as long as this Siphon runs
+_owned = False  # the mutex is this Siphon's (its main thread's): it is the session's Siphon
 
 
 def hand_over(args: list[str], api: Win32 | None = None, wait: float = 10.0) -> bool:
-    """Run first. True when another Siphon runs in this session and took args (it shows its window and queues
-    the links): this one exits. False when this is the only one, or the other never answers."""
-    global _mutex
-    api = api or Win32()
-    _mutex = api.CreateMutexW(None, False, MUTEX_NAME)
+    """Run first, on the main thread. True when another Siphon runs in this session and took args (it shows its
+    window and queues the links): this one exits. False when this one is the session's Siphon: the first, the
+    one after another that quit meanwhile, or one whose other never answers."""
+    global _api, _mutex, _owned
+    api = _api = api or Win32()
+    # Owned by the first; the one that quits lets it go (release), or leaves it abandoned, to one that waits.
+    _mutex = api.CreateMutexW(None, True, MUTEX_NAME)
     if not _mutex or api.last_error() != ERROR_ALREADY_EXISTS:
+        _owned = bool(_mutex)
         return False
     deadline = time.monotonic() + wait  # the other may still be starting: its window comes a moment later
-    while not (window := api.FindWindowW(CLASS_NAME, None)):
+    while True:
+        if api.WaitForSingleObject(_mutex, 0) in (WAIT_OBJECT_0, WAIT_ABANDONED):
+            _owned = True  # the other has quit, or is quitting and takes no more links: this one runs by itself
+            return False
+        window = api.FindWindowW(CLASS_NAME, None)
+        if window and (taken := _send(api, window, args)) is not None:
+            return taken
         if time.monotonic() >= deadline:
             _log("another Siphon is starting or stuck; opening a window of this one's own")
             return False
         time.sleep(0.1)
+
+
+def _send(api: Win32, window: int, args: list[str]) -> bool | None:
+    """True when the Siphon owning window took args; None when it refused them (it is quitting: ask again);
+    False when it could not be asked (hung, or running as administrator, which UIPI keeps this one from)."""
     pid = DWORD()
     api.GetWindowThreadProcessId(window, byref(pid))
     api.AllowSetForegroundWindow(pid.value)  # the user started this one: the other may come to the front
@@ -206,9 +225,19 @@ def hand_over(args: list[str], api: Win32 | None = None, wait: float = 10.0) -> 
     buffer = ctypes.create_string_buffer(payload, max(len(payload), 1))
     data = COPYDATASTRUCT(COPYDATA_ARGS, len(payload), ctypes.cast(buffer, c_void_p))
     answer = DWORD_PTR()
-    sent = api.SendMessageTimeoutW(window, WM_COPYDATA, 0, ctypes.addressof(data), SMTO_ABORTIFHUNG, 5000,
-                                   byref(answer))
-    return bool(sent) and answer.value == 1
+    if not api.SendMessageTimeoutW(window, WM_COPYDATA, 0, ctypes.addressof(data), SMTO_ABORTIFHUNG, 5000,
+                                   byref(answer)):
+        return False
+    return True if answer.value == 1 else None
+
+
+def release() -> None:
+    """Main thread, once Siphon's main loop is over: a Siphon started from now on runs by itself at once, instead
+    of handing its links to this one, which would drop them, or waiting for it to end."""
+    global _owned
+    if _owned:
+        _owned = False
+        _api.ReleaseMutex(_mutex)
 
 
 class NotifyIcon:
@@ -231,6 +260,7 @@ class NotifyIcon:
         self._lock = threading.RLock()
         self._ended = threading.Event()  # the main loop is done: a session that ends may go on
         self._closing = False
+        self._taking = True  # a second Siphon's links: not once the main loop is over, which would drop them
         self.session_ending = False  # set by the tray's thread the moment Windows asks
         self._wndproc = WNDPROC(self._on_message)  # referenced for as long as the window lives
         self._ready = threading.Event()  # the window exists, or could not be made
@@ -250,6 +280,10 @@ class NotifyIcon:
         self._message = (heading, body)
         self._post(_BALLOON)
         return self._hwnd is not None
+
+    def quitting(self) -> None:
+        self._taking = False
+        release()
 
     def close(self) -> None:
         if self._closing:
@@ -407,6 +441,8 @@ class NotifyIcon:
 
     def _copydata(self, lparam: int) -> int:
         if not lparam:  # any program may send WM_COPYDATA; one without its structure must not crash Siphon
+            return 0
+        if not self._taking:  # quitting: the second Siphon runs by itself (hand_over)
             return 0
         data = COPYDATASTRUCT.from_address(lparam)
         if data.dwData != COPYDATA_ARGS or data.cbData > _MAX_ARGS:

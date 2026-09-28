@@ -26,6 +26,13 @@ x64 = pytest.mark.skipif(sizeof(ctypes.c_void_p) != 8, reason="the documented si
 HWND_TRAY = 0x1234
 
 
+@pytest.fixture(autouse=True)
+def no_single_instance_yet(monkeypatch):
+    """hand_over's module state (the mutex, whether this Siphon owns it) starts afresh in every test."""
+    for name, value in (("_api", None), ("_mutex", None), ("_owned", False)):
+        monkeypatch.setattr(wintray, name, value)
+
+
 def pump(until, timeout: float = 3.0) -> None:
     context = GLib.MainContext.default()
     deadline = time.monotonic() + timeout
@@ -79,7 +86,7 @@ def test_every_call_is_declared_and_pointer_sized_where_windows_is():
     dlls = {}
     api = Win32(lambda name: dlls.setdefault(name, FakeDll(name)))
     functions = {f.name: f for dll in dlls.values() for f in dll.functions.values()}
-    assert len(functions) == 28 and all(f.restype != "unset" and f.argtypes != "unset" for f in functions.values())
+    assert len(functions) == 30 and all(f.restype != "unset" and f.argtypes != "unset" for f in functions.values())
     pointer = sizeof(ctypes.c_void_p)
     assert sizeof(HWND) == sizeof(WPARAM) == sizeof(LPARAM) == sizeof(LRESULT) == pointer
     assert (api.DefWindowProcW.restype, tuple(api.DefWindowProcW.argtypes)) == (LRESULT, (HWND, UINT, WPARAM, LPARAM))
@@ -419,6 +426,7 @@ def test_a_second_siphons_links_arrive_through_wm_copydata(icon):
         return 1
 
     other = SimpleNamespace(CreateMutexW=lambda *a: 0x77, last_error=lambda: wintray.ERROR_ALREADY_EXISTS,
+                            WaitForSingleObject=lambda handle, ms: WAIT_TIMEOUT,
                             FindWindowW=lambda cls, title: icon.api.windows.get(cls, 0),
                             GetWindowThreadProcessId=lambda hwnd, pid: setattr(pid._obj, "value", 4321) or 99,
                             AllowSetForegroundWindow=lambda pid: received.append(("allow", pid)) or 1,
@@ -454,15 +462,66 @@ def test_an_empty_command_line_just_shows_the_window(icon):
     assert icon.heard == [[]]
 
 
-def test_the_first_siphon_keeps_going():
-    first = SimpleNamespace(CreateMutexW=lambda attrs, owned, name: 0x77 if name == wintray.MUTEX_NAME else 0,
-                            last_error=lambda: 0)
+WAIT_TIMEOUT = 0x102
+
+
+def test_the_first_siphon_keeps_going_and_lets_go_when_it_quits():
+    released = []
+    first = SimpleNamespace(CreateMutexW=lambda attrs, owned, name: 0x77 if owned and name == wintray.MUTEX_NAME
+                            else 0, last_error=lambda: 0, ReleaseMutex=lambda handle: released.append(handle) or 1)
     assert not wintray.hand_over(["x"], api=first)
+    assert wintray._owned  # its main thread owns the mutex: one that starts later waits on it
+    wintray.release()
+    wintray.release()  # once only
+    assert released == [0x77] and not wintray._owned
+
+
+def test_a_second_siphon_runs_by_itself_when_the_first_quits_while_it_waits():
+    waits = iter([WAIT_TIMEOUT, WAIT_TIMEOUT, wintray.WAIT_ABANDONED])  # the first ended without letting go
+    second = SimpleNamespace(CreateMutexW=lambda *a: 0x77, last_error=lambda: wintray.ERROR_ALREADY_EXISTS,
+                             WaitForSingleObject=lambda handle, ms: next(waits), FindWindowW=lambda cls, title: 0)
+    started = time.monotonic()
+    assert not wintray.hand_over(["x"], api=second, wait=5)
+    assert time.monotonic() - started < 1 and wintray._owned
+
+
+def test_a_quitting_siphon_refuses_links_and_the_second_one_runs_by_itself(icon):
+    released, sent = [], []
+    wintray._api, wintray._mutex, wintray._owned = SimpleNamespace(ReleaseMutex=released.append), 0x77, True
+    held = [True]
+
+    def send_timeout(hwnd, message, wparam, lparam, flags, timeout, result):
+        sent.append(message)
+        result._obj.value = icon.backend._handle(message, wparam, lparam)
+        return 1
+
+    second = SimpleNamespace(CreateMutexW=lambda *a: 0x78, last_error=lambda: wintray.ERROR_ALREADY_EXISTS,
+                             WaitForSingleObject=lambda handle, ms: WAIT_TIMEOUT if held[0] else wintray.WAIT_OBJECT_0,
+                             FindWindowW=lambda cls, title: icon.api.windows.get(cls, 0),
+                             GetWindowThreadProcessId=lambda hwnd, pid: 99, AllowSetForegroundWindow=lambda pid: 1,
+                             SendMessageTimeoutW=send_timeout)
+    icon.tray.quitting()  # the first's main loop is over: what it would take now would be dropped
+    assert released == [0x77] and not wintray._owned
+    # the first's window still takes the message, and refuses it; then the second one gets the mutex
+    threading.Timer(0.25, lambda: held.__setitem__(0, False)).start()
+    assert not wintray.hand_over(["https://youtu.be/x"], api=second, wait=5)
+    assert sent and set(sent) == {wintray.WM_COPYDATA} and wintray._owned
+    linger()
+    assert icon.heard == []
+
+
+def test_a_second_siphon_that_cannot_ask_runs_by_itself():
+    """SendMessageTimeout fails: the first hangs, or runs as administrator (UIPI)."""
+    second = SimpleNamespace(CreateMutexW=lambda *a: 0x77, last_error=lambda: wintray.ERROR_ALREADY_EXISTS,
+                             WaitForSingleObject=lambda handle, ms: WAIT_TIMEOUT, FindWindowW=lambda cls, title: 0x99,
+                             GetWindowThreadProcessId=lambda hwnd, pid: 99, AllowSetForegroundWindow=lambda pid: 1,
+                             SendMessageTimeoutW=lambda *a: 0)
+    assert wintray.hand_over(["x"], api=second, wait=5) is False and not wintray._owned
 
 
 def test_a_first_siphon_that_never_shows_its_window_is_not_waited_for_forever(capfd):
     stuck = SimpleNamespace(CreateMutexW=lambda *a: 0x77, last_error=lambda: wintray.ERROR_ALREADY_EXISTS,
-                            FindWindowW=lambda cls, title: 0)
+                            WaitForSingleObject=lambda handle, ms: WAIT_TIMEOUT, FindWindowW=lambda cls, title: 0)
     started = time.monotonic()
     assert not wintray.hand_over([], api=stuck, wait=0.3)
     assert 0.3 <= time.monotonic() - started < 2 and "another Siphon" in capfd.readouterr().err
