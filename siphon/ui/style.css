@@ -17,6 +17,23 @@
   color: alpha(currentColor, 0.5);
 }
 
+/* A picture dragged over a playlist's cover, which takes it as the playlist's picture: a ring around the rounded
+   cover instead of the square line the theme draws inside any widget a drop may land on. */
+.playlist-picture:drop(active) {
+  box-shadow: none;
+}
+
+.playlist-picture:drop(active) > .cover {
+  outline: 3px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.playlist-picture .picture-busy {  /* over the whole placeholder note (54 px) */
+  background-color: var(--window-bg-color);
+  border-radius: 999px;
+  padding: 16px;
+}
+
 .song-row.playing .song-title {
   color: var(--accent-color);
   font-weight: bold;

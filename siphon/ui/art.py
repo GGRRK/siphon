@@ -62,7 +62,7 @@ class CoverArt:
 
     def forget(self) -> None:
         self._cache.clear()
-        _give_back_memory()
+        give_back_memory()
 
     def cancel(self, ticket: Ticket) -> None:
         key, deliver = ticket
@@ -170,7 +170,7 @@ class Cover(Adw.Bin):
         self._image.set_pixel_size(max(16, self._size * 3 // 8))
 
 
-def _give_back_memory() -> None:
+def give_back_memory() -> None:
     """glibc keeps memory it got back for later instead of returning it to the system: the 30 MB of a full cache
     stayed until malloc_trim (measured); other C libraries follow their own rules."""
     if sys.platform.startswith("linux"):
