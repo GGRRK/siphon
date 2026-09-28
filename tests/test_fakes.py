@@ -63,3 +63,8 @@ def test_the_fake_core_has_the_real_fields_and_what_the_window_calls():
     for name in ("resolve", "download", "is_supported", "source_link", "cover_image"):
         assert inspect.signature(getattr(core, name)).parameters.keys() == \
             inspect.signature(getattr(fake_core, name)).parameters.keys()
+
+
+def test_the_fake_core_words_the_formats_as_the_real_one():
+    for name in ("FORMATS", "FORMAT_LABELS", "FORMAT_NOTES", "FORMAT_QUALITY", "QUALITY_BLOCKS"):
+        assert getattr(fake_core, name) == getattr(core, name), name

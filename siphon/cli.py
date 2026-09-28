@@ -4,8 +4,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from .core import (FORMATS, Progress, Resolved, SiphonError, cover_image, default_outdir, download, label, resolve,
-                   source_link)
+from .core import (FORMAT_LABELS, FORMAT_NOTES, FORMAT_QUALITY, FORMATS, Progress, Resolved, SiphonError, cover_image,
+                   default_outdir, download, label, resolve, source_link)
 from .library import PLAYLISTS_DIR
 from .playlists import LinkedPlaylist, Playlists
 
@@ -49,9 +49,19 @@ def _link(found: Resolved, url: str, outdir: Path) -> LinkedPlaylist | None:
     return linked
 
 
+def formats_help() -> str:
+    """The formats as the window's Format list words them: name and sound, then what each gets you."""
+    lines = ["formats (-f):"]
+    for fmt in FORMATS:
+        _blocks, sound = FORMAT_QUALITY[fmt]
+        default = " (the default)" if fmt == FORMATS[0] else ""
+        lines += [f"  {fmt:<5} {FORMAT_LABELS[fmt]} - {sound.lower()} sound{default}", f"        {FORMAT_NOTES[fmt]}"]
+    return "\n".join(lines)
+
+
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(prog="siphon get",
-                                     description="Save the audio of one or more links.")
+    parser = argparse.ArgumentParser(prog="siphon get", description="Save the audio of one or more links.",
+                                     epilog=formats_help(), formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("urls", nargs="+", metavar="URL")
     parser.add_argument("-f", "--format", choices=FORMATS, default=FORMATS[0])
     parser.add_argument("-o", "--out", type=Path, help=f"folder (default: {default_outdir()})")

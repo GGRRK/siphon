@@ -60,7 +60,34 @@ FORMAT_LABELS = {
     "m4a": "M4A (AAC)",
     "opus": "Opus",
     "flac": "FLAC",
-    "best": "Original (no re-encode)",
+    "best": "Original",
+}
+# What each format gets you, for the Format row, its list and `siphon get --help`: true whichever site a song comes
+# from. Measured 2026-09-28 on 3 YouTube videos, a Spotify song (found on YouTube) and a SoundCloud song: YouTube
+# sends Opus at 127-133 kbps (0.97-1.0 MB a minute) and AAC, the M4A kind, at 130-134 kbps (0.98-1.0 MB);
+# SoundCloud sends AAC at 160 kbps (1.26 MB) and no Opus. A format the site sends is kept as it is (yt-dlp copies
+# it), any other is converted: Opus from SoundCloud at 160 kbps (1.29 MB), MP3 at 244-272 kbps (1.83-2.04 MB, up
+# to twice Original), FLAC 24-bit at 1.6-1.8 Mbps (12.0-13.4 MB, 10-14 times Original). FLAC is lossless, so its
+# samples are Original's to -135 dB, bar the peaks a lossy decoder puts above full scale (0.05% of one song's).
+FORMAT_NOTES = {
+    "opus": "YouTube's own sound, untouched; small files; not for Apple Music",
+    "m4a": "Small files that play almost anywhere, Apple Music included",
+    "mp3": "Plays on anything, even old car stereos; files up to twice as big",
+    "flac": "Sounds like Original, no better, in files 10-14 times bigger",
+    "best": "Exactly what the site sends; the file type depends on the site",
+}
+# The quality meter: how close a format's sound is to the site's own, in blocks out of QUALITY_BLOCKS, and its word;
+# never more than it is from any site. Original and FLAC keep the site's sound from every site. Opus, M4A and MP3
+# are each converted from some site (Opus from SoundCloud, MP3 from YouTube, M4A from one that sends MP3), once and
+# at a bitrate listening tests find nearly nobody can tell from its source; and M4A from YouTube is YouTube's other,
+# AAC version of the song, not the Opus Original keeps. Excellent, then, but not the site's own.
+QUALITY_BLOCKS = 4
+FORMAT_QUALITY = {
+    "opus": (3, "Excellent"),
+    "m4a": (3, "Excellent"),
+    "mp3": (3, "Excellent"),
+    "flac": (4, "Best"),
+    "best": (4, "Best"),
 }
 
 
