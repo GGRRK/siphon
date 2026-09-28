@@ -564,6 +564,13 @@ def test_the_preamp_keeps_a_full_scale_tone_at_the_curves_peak_from_clipping(tmp
     assert 0.98 < peak < 1.0  # close to full scale, not over it: the preamp is 19.7 dB for a 19.64 dB peak
 
 
+def test_the_bands_hand_the_sound_on_as_floats(chord, tmp_path, monkeypatch):
+    """They work in double; given doubles, mpv chose 16-bit samples for its output (ao=pcm, mpv 0.41)."""
+    record(chord, ROCK, tmp_path, monkeypatch)
+    fmt = (tmp_path / "out.wav").read_bytes()[12:60]
+    assert fmt[:4] == b"fmt " and int.from_bytes(fmt[22:24], "little") == 32
+
+
 @pytest.mark.parametrize("rate", [8000, 16000, 32000])
 def test_a_band_at_half_the_sample_rate_does_not_turn_the_song_into_nan(rate, tmp_path, monkeypatch):
     """ffmpeg's equalizer gives NaN for a band exactly at the Nyquist frequency; the chain resamples such files."""

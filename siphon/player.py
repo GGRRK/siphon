@@ -9,8 +9,9 @@ The equalizer is mpv's filter chain (eq.chain). mpv builds a song's filters from
 and again after every seek. Rewriting `af` under a playing song rebuilds the filters it changes from silence, which
 clicks, so each song is loaded with the chain as a per-file option and a playing song's filters change by af-command,
 which keeps their state. A band then moves cleanly even by 6 dB; only the preamp, a plain gain, jumps, so a big
-preamp move is made in steps (eq.step). Filters are put into a playing song all at 0 dB, an exact pass-through, then
-moved; switching off leaves them at 0 dB. The next seek (whose own reset hides it) or song rebuilds them as they are.
+preamp move is made in steps (eq.step). Filters are put into a playing song all at 0 dB, which leaves the sound as it
+was (eq.filters), then moved; switching off leaves them at 0 dB. The next seek (whose own reset hides it) or song
+rebuilds them as they are.
 
 Measured on a 100 Hz tone at 0.25 of full scale, as the sharpest bend in the wave against a clean sine's at +12 dB:
 Rock put in whole 114x, taken out 376x; filters at 0 dB put in or taken out 0.3x (the same as no change).

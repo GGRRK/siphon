@@ -181,14 +181,23 @@ def chain(gains: Sequence[float] | None) -> str:
 
 
 def filters(gains: Sequence[float]) -> str:
-    """chain() even when flat: then every filter is at 0 dB, which passes the sound through exactly.
+    """chain() even when flat: then every filter is at 0 dB, which passes the sound through unchanged (in 10 s of
+    stereo, 16 samples near silence moved, by at most 3e-13).
+
+    The bands work in double precision and hand the sound on as doubles; the last hands floats to mpv again (given
+    doubles, mpv chose 16-bit samples for ao=pcm). In float, each band's rounding went round its feedback loop: every
+    band at 0 dB moved samples by up to 3e-4, and every band at +24 dB left noise at -85 dBFS A-weighted on a
+    full-scale 62 Hz tone, 16 dB above a 16-bit file's own dither. In double that noise is at -159 dBFS, for the same
+    CPU time: 0.25 s to play 120 s of 48 kHz stereo either way (measured 2026-09-28, mpv 0.41, ffmpeg 9.0.2).
 
     mpv runs each filter in an ffmpeg graph of its own, and ffmpeg gives every graph a pool of threads, one per core
     up to 16, to which the band filters hand each block's two channels. So each graph here is held to one thread:
     the same samples bit for bit, but on a 24-core computer 12 threads instead of 192, about 110 wakeups a second
     instead of 890, and half the CPU time (Rock on a 44.1 kHz MP3, measured 2026-09-26, mpv 0.41, ffmpeg 9).
     """
-    bands = [(f"eq{i}", f"equalizer=f={hz}:t=o:w=1:g={db:g}") for i, (hz, db) in enumerate(zip(FREQUENCIES, gains))]
+    bands = [(f"eq{i}", f"equalizer=f={hz}:t=o:w=1:g={db:g}:precision=f64")
+             for i, (hz, db) in enumerate(zip(FREQUENCIES, gains))]
+    bands[-1] = (bands[-1][0], f"{bands[-1][1]},aformat=sample_fmts=fltp")  # floats again for mpv
     return ",".join(f"@{label}:lavfi=graph=[{spec}]:o=[threads=1]" for label, spec in (
         (FILTERS[0], f"aformat=sample_rates={_RATES_IN}"), (PREAMP, f"volume=volume={headroom(gains):g}dB"), *bands))
 

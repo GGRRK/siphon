@@ -215,21 +215,23 @@ def graphs(chain: str) -> list[tuple[str, str]]:
 
 
 def test_the_chain_is_a_preamp_then_ten_octave_wide_peaking_filters():
+    """The bands in double precision, and floats again after the last one."""
     assert graphs(eq.chain(ROCK)) == [
         ("rate", "aformat=sample_rates=44100|48000|88200|96000|176400|192000|352800|384000"),
         ("preamp", "volume=volume=-7.8dB"),
-        ("eq0", "equalizer=f=31:t=o:w=1:g=5"), ("eq1", "equalizer=f=62:t=o:w=1:g=4"),
-        ("eq2", "equalizer=f=125:t=o:w=1:g=2"), ("eq3", "equalizer=f=250:t=o:w=1:g=-1"),
-        ("eq4", "equalizer=f=500:t=o:w=1:g=-2"), ("eq5", "equalizer=f=1000:t=o:w=1:g=-1"),
-        ("eq6", "equalizer=f=2000:t=o:w=1:g=2"), ("eq7", "equalizer=f=4000:t=o:w=1:g=4"),
-        ("eq8", "equalizer=f=8000:t=o:w=1:g=5"), ("eq9", "equalizer=f=16000:t=o:w=1:g=5")]
+        ("eq0", "equalizer=f=31:t=o:w=1:g=5:precision=f64"), ("eq1", "equalizer=f=62:t=o:w=1:g=4:precision=f64"),
+        ("eq2", "equalizer=f=125:t=o:w=1:g=2:precision=f64"), ("eq3", "equalizer=f=250:t=o:w=1:g=-1:precision=f64"),
+        ("eq4", "equalizer=f=500:t=o:w=1:g=-2:precision=f64"), ("eq5", "equalizer=f=1000:t=o:w=1:g=-1:precision=f64"),
+        ("eq6", "equalizer=f=2000:t=o:w=1:g=2:precision=f64"), ("eq7", "equalizer=f=4000:t=o:w=1:g=4:precision=f64"),
+        ("eq8", "equalizer=f=8000:t=o:w=1:g=5:precision=f64"),
+        ("eq9", "equalizer=f=16000:t=o:w=1:g=5:precision=f64,aformat=sample_fmts=fltp")]
 
 
 def test_a_single_band_keeps_all_ten_filters_so_any_slider_can_move_live():
     gains = (0, 0, 0, 0, 0, 0, 0, 0, 0, -3.5)
     assert graphs(eq.chain(gains))[1:] == [("preamp", "volume=volume=0dB")] + [
-        (f"eq{i}", f"equalizer=f={hz}:t=o:w=1:g=0") for i, hz in enumerate(eq.FREQUENCIES[:9])] + [
-        ("eq9", "equalizer=f=16000:t=o:w=1:g=-3.5")]
+        (f"eq{i}", f"equalizer=f={hz}:t=o:w=1:g=0:precision=f64") for i, hz in enumerate(eq.FREQUENCIES[:9])] + [
+        ("eq9", "equalizer=f=16000:t=o:w=1:g=-3.5:precision=f64,aformat=sample_fmts=fltp")]
 
 
 def test_commands_change_only_what_moved_and_turn_down_before_boosting():
@@ -239,6 +241,11 @@ def test_commands_change_only_what_moved_and_turn_down_before_boosting():
     cut = (5, 4, 2, -1, -2, -1.5, 2, 4, 5, 5)  # a cut away from the peak leaves the preamp alone
     assert eq.commands(ROCK, cut) == [("eq5", "gain", "-1.5", "equalizer")]
     assert eq.commands(ROCK, ROCK) == []
+
+
+ALL_24 = (24.0,) * 10
+PAIR_24 = (24.0, 24.0, 0, 0, 0, 0, 0, 0, 0, 0)  # the sharpest top: 31 and 62 Hz together
+UP_DOWN = (24.0, -24.0) * 5
 
 
 ALL_24 = (24.0,) * 10
