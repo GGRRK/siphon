@@ -133,6 +133,7 @@ class FakeApi:
         self.chosen = 0
         self.error = 0
         self.windows = {}
+        self.reenter = None  # a message the next Shell_NotifyIconW delivers to the window while it waits
 
     def last_error(self):
         return self.error
@@ -186,6 +187,9 @@ class FakeApi:
 
     def Shell_NotifyIconW(self, message, pointer):
         data = pointer._obj
+        if self.reenter is not None:  # as Windows does while the call waits on Explorer's reply
+            sent, self.reenter = self.reenter, None
+            self.send(data.hWnd, sent, 0, 0)
         record = SimpleNamespace(message=message, flags=data.uFlags, id=data.uID, hwnd=data.hWnd,
                                  callback=data.uCallbackMessage, icon=data.hIcon, tip=wintray.text(data.szTip),
                                  info=wintray.text(data.szInfo), title=wintray.text(data.szInfoTitle),
@@ -373,6 +377,14 @@ def test_explorer_restarting_brings_the_icon_back(icon):
     deliver(icon, 0xC0DE)  # TaskbarCreated
     pump(lambda: icon.api.icons == [1])
     assert icon.tray.available
+
+
+def test_explorer_restarting_during_a_tray_call_does_not_deadlock(icon):
+    icon.api.reenter = 0xC0DE  # TaskbarCreated, delivered inside the NIM_MODIFY that changes the tip
+    icon.player.current = SimpleNamespace(title="Song", artist="")
+    icon.player.emit("changed")
+    pump(lambda: [r.message for r in icon.api.notify_calls()].count(wintray.NIM_SETVERSION) == 2)
+    assert icon.api.icons == [1] and icon.tray.available
 
 
 def test_no_notification_area_means_no_tray(capfd):

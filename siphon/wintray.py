@@ -226,7 +226,9 @@ class NotifyIcon:
         self._icon = self._balloon_icon = None
         self._taskbar_created = 0
         self._added = False
-        self._lock = threading.Lock()
+        # Re-entrant: Shell_NotifyIcon waits in a SendMessage to Explorer, and a message sent to this window
+        # meanwhile (TaskbarCreated) runs its procedure right there, on this thread, while the lock is held
+        self._lock = threading.RLock()
         self._ended = threading.Event()  # the main loop is done: a session that ends may go on
         self._closing = False
         self.session_ending = False  # set by the tray's thread the moment Windows asks
