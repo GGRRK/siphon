@@ -11,15 +11,9 @@ from .. import settings
 from .block import LinkBlock
 from .downloader import Downloader
 from .fmt import pretty_path
+from .format_row import FormatRow
 from .music import Music
 
-_FORMAT_HINTS = {
-    "mp3": "Plays everywhere; about twice the size, no better sound",
-    "m4a": "Same size as Opus; plays on iPhones and Apple devices",
-    "opus": "Best quality, smallest files - YouTube's own audio, untouched",
-    "flac": "Lossless container, no quality gain over the source",
-    "best": "Keeps the source audio exactly as it is",
-}
 _CLIPBOARD_MAX = 2048  # longer clipboard text is not a link worth offering
 
 
@@ -69,9 +63,7 @@ class DownloadPage(Gtk.Box):
         link_bar.append(self._entry)
         link_bar.append(self._download)
 
-        formats = Gtk.StringList.new([self.core.FORMAT_LABELS[f] for f in self.core.FORMATS])
-        self._format_row = Adw.ComboRow(title="Format", model=formats)
-        self._format_row.set_selected(self.core.FORMATS.index(self._prefs.format))
+        self._format_row = FormatRow(self.core, self._prefs.format)
         self._format_row.connect("notify::selected", self._on_format_changed)
         self._folder_row = Adw.ActionRow(title="Save To", use_markup=False, subtitle_lines=2)
         change = Gtk.Button(label="Change…", valign=Gtk.Align.CENTER)
@@ -106,6 +98,9 @@ class DownloadPage(Gtk.Box):
 
     def focus_entry(self) -> None:
         self._entry.grab_focus()
+
+    def set_narrow(self, narrow: bool) -> None:
+        self._format_row.props.narrow = narrow
 
     # -- queue
 
@@ -177,14 +172,11 @@ class DownloadPage(Gtk.Box):
     # -- settings
 
     def _show_settings(self) -> None:
-        fmt = self.core.FORMATS[self._format_row.get_selected()]
-        self._format_row.set_subtitle(_FORMAT_HINTS.get(fmt, ""))
         self._folder_row.set_subtitle(pretty_path(self._prefs.folder))
         self._folder_row.set_tooltip_text(str(self._prefs.folder))
 
-    def _on_format_changed(self, row: Adw.ComboRow, _pspec) -> None:
-        self._prefs.format = self.core.FORMATS[row.get_selected()]
-        self._show_settings()
+    def _on_format_changed(self, row: FormatRow, _pspec) -> None:
+        self._prefs.format = row.format
         self._save_prefs()
 
     def _on_choose_folder(self, _button: Gtk.Button) -> None:
