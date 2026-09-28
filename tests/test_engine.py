@@ -207,8 +207,9 @@ def fresh_python(code: str, *args: str) -> list[str]:
 
 
 def test_starting_the_window_imports_no_yt_dlp():
+    """The window, its update check and either platform's tray icon."""
     loaded, version, real = fresh_python(
-        "import sys; from siphon import app, core; from siphon.ui.updates import Updates; "
+        "import sys; from siphon import app, core, sni, tray, wintray; from siphon.ui.updates import Updates; "
         "updates = Updates(core, lambda: None); loaded = 'yt_dlp' in sys.modules; "
         "import yt_dlp; print(loaded, updates.engine_version, yt_dlp.version.__version__)")
     assert (loaded, version) == ("False", real)
