@@ -33,6 +33,9 @@ _RESTART_AFTER = 3.0  # previous() restarts the song instead once this far in
 _STEP_MS = 25  # between the equalizer's steps: about one block of sound for Opus, AAC and MP3 (20-26 ms)
 
 _ERROR = mpv.MpvEventEndFile.ERROR
+# mpv's own on-screen tools, each a Lua interpreter on a thread of its own that wakes with the playback
+_TOOLS = ("load-stats-overlay", "load-console", "load-select", "load-positioning", "load-commands",
+          "load-context-menu", "load-auto-profiles")
 
 
 class Player(GObject.Object):
@@ -77,6 +80,14 @@ class Player(GObject.Object):
         # when first imported, and GTK's start-up sets the user's locale, so it is set again here.
         locale.setlocale(locale.LC_NUMERIC, "C")
         self._mpv: mpv.MPV | None = mpv.MPV(**options)
+        # Siphon has no mpv window to show mpv's tools in (measured: 6 threads and ~50 wakeups a second while playing,
+        # 2026-09-26, mpv 0.41). Switched off here rather than among the options above, where one an older mpv lacks
+        # would stop mpv from starting; mpv closes the ones it started already.
+        for tool in _TOOLS:
+            try:
+                self._mpv[tool] = "no"
+            except AttributeError:  # this mpv has no such tool
+                pass
         self._mpv.register_event_callback(self._on_mpv_event)
         self._mpv.observe_property("time-pos", self._on_mpv_time)
         self._mpv.observe_property("duration", self._on_mpv_duration)

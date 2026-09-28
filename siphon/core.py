@@ -2,13 +2,20 @@
 
 This module is the contract the window and the CLI code against; the Spotify reader lives in
 spotify.py and the YouTube matcher in match.py.
+
+yt-dlp is imported where a link is first resolved or downloaded, not with this module: a window only
+playing music does without its 12 MB and the 0.05 s it takes to import, or 0.3 s from a downloaded
+engine's wheel, for which Python keeps no bytecode (measured 2026-09-26, Python 3.14).
 """
 
 import base64
+import importlib.machinery
+import importlib.util
 import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -19,18 +26,21 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import mutagen
-import yt_dlp
 from mutagen.flac import FLAC, Picture
 from mutagen.id3 import APIC, TALB, TIT2, TPE1, TRCK
 from mutagen.mp3 import MP3
 from mutagen.mp4 import MP4, MP4Cover
 from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
-from yt_dlp.utils import DownloadError
 
 from . import match, names, paths
+
+if TYPE_CHECKING:
+    import yt_dlp
+    from yt_dlp.utils import DownloadError
 
 
 class SiphonError(Exception):
@@ -198,7 +208,10 @@ class _Quiet:
     info = warning = error = debug
 
 
-def _ydl(extra: dict) -> yt_dlp.YoutubeDL:
+def _ydl(extra: dict) -> "yt_dlp.YoutubeDL":
+    import yt_dlp
+
+    _in_background(getattr(yt_dlp.utils, "Popen", None))
     runtime = js_runtime()
     return yt_dlp.YoutubeDL({
         "quiet": True,
@@ -211,6 +224,27 @@ def _ydl(extra: dict) -> yt_dlp.YoutubeDL:
         "socket_timeout": 20,
         **extra,
     })
+
+
+_background_lock = threading.Lock()
+
+
+def _in_background(popen: type | None) -> None:
+    """Every program yt-dlp runs - ffmpeg converting, ffprobe, the JavaScript runtime solving YouTube's challenges -
+    runs below normal priority (paths.background). yt-dlp starts them all through its one Popen class, whose start
+    this wraps, once; a yt-dlp without that class runs them as it would anyway."""
+    with _background_lock:
+        if popen is None or getattr(popen, "_siphon_background", False):
+            return
+        start = popen.__init__
+
+        def start_in_background(self, *args, **kwargs) -> None:
+            kwargs["creationflags"] = kwargs.get("creationflags", 0) | paths.background()
+            start(self, *args, **kwargs)
+            paths.lower_priority(self.pid)
+
+        popen.__init__ = start_in_background
+        popen._siphon_background = True
 
 
 REFUSED = "YouTube refused the download - try Update engine."
@@ -339,6 +373,8 @@ def resolve(url: str) -> Resolved:
 
 
 def _resolve_ytdlp(url: str) -> Resolved:
+    from yt_dlp.utils import DownloadError
+
     if _is_youtube(url):
         _require_js()
     opts: dict = {"extract_flat": "in_playlist"}
@@ -505,6 +541,8 @@ def download(track: Track, outdir: Path, fmt: str, progress: ProgressFn | None =
     except OSError as e:
         raise SiphonError(f"Can't write to {outdir}: {e.strerror or e}.") from None
 
+    from yt_dlp.utils import DownloadError
+
     try:
         with _ydl({**ytdlp_options(fmt, work), **_hooks(report, check),
                    "extract_flat": "in_playlist", "playlistend": 6}) as ydl:
@@ -542,7 +580,7 @@ def _fit(stem: str, outdir: Path) -> str:
     return names.shorten(stem, room - len(".flac"))
 
 
-def _fetch(ydl: yt_dlp.YoutubeDL, info: dict, cancel: threading.Event | None) -> dict:
+def _fetch(ydl: "yt_dlp.YoutubeDL", info: dict, cancel: threading.Event | None) -> dict:
     """Download (and convert) an extracted result.
 
     YouTube refuses roughly one stream URL in six with HTTP 403, in bursts that can outlast a few
@@ -551,6 +589,8 @@ def _fetch(ydl: yt_dlp.YoutubeDL, info: dict, cancel: threading.Event | None) ->
     yt-dlp client that still gets audio formats without a PO token (default and web_embedded
     worked; tv, web_safari, mweb, android_vr and ios did not).
     """
+    from yt_dlp.utils import DownloadError
+
     clients = (None, None, ["web_embedded"], None, ["web_embedded"])
     for attempt, client in enumerate(clients):
         if attempt:
@@ -569,7 +609,7 @@ def _fetch(ydl: yt_dlp.YoutubeDL, info: dict, cancel: threading.Event | None) ->
     raise AssertionError("unreachable")
 
 
-def _was_cancelled(e: DownloadError) -> bool:
+def _was_cancelled(e: "DownloadError") -> bool:
     return bool(e.exc_info) and isinstance(e.exc_info[1], Cancelled)
 
 
@@ -602,7 +642,7 @@ def _hooks(report: ProgressFn, check: Callable[[], None]) -> dict:
     return {"progress_hooks": [on_download], "postprocessor_hooks": [on_postprocess]}
 
 
-def _source_info(ydl: yt_dlp.YoutubeDL, track: Track, report: ProgressFn,
+def _source_info(ydl: "yt_dlp.YoutubeDL", track: Track, report: ProgressFn,
                  check: Callable[[], None]) -> dict:
     """The unprocessed extractor result to download: the track itself, or its YouTube match."""
     if not track.query:
@@ -660,12 +700,13 @@ def _cover(urls: list[str], work: Path) -> bytes | None:
             continue
         src, dst = work / "cover-source", work / "cover.jpg"
         src.write_bytes(data)
-        done = subprocess.run(
+        with subprocess.Popen(
             ["ffmpeg", "-v", "error", "-y", "-i", str(src),
              "-vf", "crop='min(iw,ih)':'min(iw,ih)'", "-frames:v", "1", "-q:v", "2", str(dst)],
-            capture_output=True, creationflags=paths.no_window(),
-        )
-        if done.returncode == 0 and dst.is_file():
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=paths.no_window() | paths.background(),
+        ) as ffmpeg:
+            paths.lower_priority(ffmpeg.pid)
+        if ffmpeg.returncode == 0 and dst.is_file():
             return dst.read_bytes()
     return None
 
@@ -718,7 +759,20 @@ def _tag(path: Path, track: Track, info: dict, cover: bytes | None) -> None:
 
 
 def engine_version() -> str:
-    """The yt-dlp version loaded in this process."""
+    """The yt-dlp version this process uses, read from its version module without importing yt-dlp itself where
+    that module can be found the way importing would find it; else from yt-dlp, imported."""
+    if "yt_dlp" not in sys.modules:
+        try:
+            package = importlib.util.find_spec("yt_dlp")  # a top-level name: finding it imports nothing
+            spec = importlib.machinery.PathFinder.find_spec("yt_dlp.version", package.submodule_search_locations)
+            found: dict = {}
+            exec(spec.loader.get_code(spec.name), found)  # plain assignments, written by yt-dlp's release script
+            if isinstance(found.get("__version__"), str):
+                return found["__version__"]
+        except Exception:  # anything unusual about where it lives: ask yt-dlp itself
+            pass
+    import yt_dlp
+
     return yt_dlp.version.__version__
 
 

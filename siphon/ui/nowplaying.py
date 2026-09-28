@@ -88,6 +88,9 @@ class NowPlaying(Gtk.Revealer):
 
         player.connect("changed", lambda _p: self._sync())
         player.connect("position", lambda _p, seconds: self._show_position(seconds))
+        # Hidden (the window closed to the background, say), the bar skips the position's four updates a second;
+        # shown again, it catches up at once.
+        self.connect("map", lambda _bar: self._show_position(player.position))
         self._sync()
 
     def set_narrow(self, narrow: bool) -> None:
@@ -206,7 +209,7 @@ class NowPlaying(Gtk.Revealer):
         return f"audio-volume-{level}-symbolic"
 
     def _show_position(self, seconds: float) -> None:
-        if self._dragging:
+        if self._dragging or not self.get_mapped():
             return
         self._syncing = True
         self._seek.set_value(seconds)

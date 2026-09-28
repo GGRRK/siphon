@@ -144,7 +144,10 @@ $installed = Join-Path $env:LOCALAPPDATA 'Programs\Siphon'
 $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Siphon.lnk'
 
 Check 'versions' {
-    Expect (Run $cli @('--version')) '(?m)^Siphon \d+\.\d+\.\d+\s+yt-dlp 20\d\d\.' 'Siphon and yt-dlp versions'
+    $versions = Run $cli @('--version')
+    Expect $versions '(?m)^Siphon \d+\.\d+\.\d+\s+yt-dlp 20\d\d\.' 'Siphon and yt-dlp versions'
+    # read from yt-dlp's version module without importing yt-dlp (siphon/core.py); the selftest imports it
+    $script:ytdlpRead = [regex]::Match($versions, 'yt-dlp (\S+)').Groups[1].Value
 }
 
 Check 'selftest --net' {
@@ -156,6 +159,9 @@ Check 'selftest --net' {
     Expect $report 'ok\s+download\s+.*opus, 21\d\.\d s' 'a real YouTube download as Opus'
     Expect $report 'ok\s+challenge\s+.*solved by quickjs' 'QuickJS solved the YouTube challenge'
     Expect $report 'all checks passed' 'every selftest check'
+    $imported = [regex]::Match($report, 'engine\s+yt-dlp (\S+) from').Groups[1].Value
+    if ($imported -ne $script:ytdlpRead) { throw "--version read yt-dlp $script:ytdlpRead, yt-dlp says $imported" }
+    Write-Host "  ok: the yt-dlp version read without importing it is the imported one's"
 }
 
 Check 'update check against GitHub' {
@@ -174,7 +180,26 @@ Check 'update check against GitHub' {
 }
 
 Check 'Spotify track as M4A' {
-    Run $cli @('get', 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT', '-f', 'm4a', '-o', $music) | Out-Null
+    # the programs Siphon runs (ffmpeg converting, ffprobe, QuickJS) start below normal priority (siphon/paths.py)
+    $watch = Start-Job {
+        while ($true) {
+            Get-Process ffmpeg, ffprobe, qjs -ErrorAction SilentlyContinue |
+                ForEach-Object { "$($_.ProcessName) $($_.PriorityClass)" }
+            Start-Sleep -Milliseconds 50
+        }
+    }
+    try {
+        Run $cli @('get', 'https://open.spotify.com/track/4cOdK2wGLETKBW3PvgPWqT', '-f', 'm4a', '-o', $music) | Out-Null
+    } finally {
+        Stop-Job $watch
+        $programs = @(Receive-Job $watch | Where-Object { $_ } | Sort-Object -Unique)
+        Remove-Job $watch
+    }
+    Write-Host "  programs seen: $($programs -join ', ')"
+    if (-not ($programs -match '^ffmpeg ')) { throw 'no ffmpeg seen converting' }
+    $normal = @($programs | Where-Object { $_ -notmatch ' (BelowNormal)?$' })  # an empty class: it had just ended
+    if ($normal.Count) { throw "not below normal priority: $($normal -join ', ')" }
+    Write-Host '  ok: every program ran below normal priority'
     $song = Get-ChildItem $music -Filter *.m4a -Recurse | Select-Object -First 1
     if (-not $song) { throw "no .m4a in $music" }
     $info = Run $probe @('-v', 'error', '-show_entries', 'stream=codec_name:format=duration', '-of', 'csv=p=0', $song.FullName)
@@ -187,7 +212,10 @@ if ($Engine) {
         $engineDir = Join-Path $env:LOCALAPPDATA 'Siphon\engine'
         Copy-Item -Recurse -Force $Engine $engineDir
         try {
-            Expect (Run $cli @('selftest')) 'engine\s+yt-dlp \S+ from .*engine\\yt_dlp-[^\\]+\.whl\\yt_dlp' 'yt-dlp imported from the wheel'
+            $report = Run $cli @('selftest')
+            Expect $report 'engine\s+yt-dlp \S+ from .*engine\\yt_dlp-[^\\]+\.whl\\yt_dlp' 'yt-dlp imported from the wheel'
+            $imported = [regex]::Match($report, 'engine\s+yt-dlp (\S+) from').Groups[1].Value
+            Expect (Run $cli @('--version')) "yt-dlp $([regex]::Escape($imported))\s*$" 'the version read from the wheel without importing yt-dlp'
         } finally { Remove-Item -Recurse -Force $engineDir }
     }
 }

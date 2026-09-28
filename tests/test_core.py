@@ -1,3 +1,4 @@
+import os
 import shutil
 
 import pytest
@@ -369,5 +370,87 @@ def test_cover_image_without_ffmpeg_is_none(monkeypatch):
         raise FileNotFoundError("ffmpeg")
 
     monkeypatch.setattr(core, "http_get", lambda url, **_kw: (url, _png(8, 8)))
-    monkeypatch.setattr(core.subprocess, "run", no_ffmpeg)
+    monkeypatch.setattr(core.subprocess, "Popen", no_ffmpeg)
     assert core.cover_image(["https://example.com/a.jpg"]) is None
+
+
+# -- helper programs run below normal priority, so a game keeps the CPU it needs (the player keeps normal priority)
+
+class FakePopen:
+    """Stands in for yt-dlp's Popen: records how it was started."""
+
+    def __init__(self, args, **kwargs) -> None:
+        self.args, self.kwargs, self.pid = args, kwargs, 4242
+
+
+@pytest.fixture
+def lowered(monkeypatch) -> list[tuple[int, int]]:
+    """(pid, nice) of every POSIX priority change, none made for real; each program starts at nice 3."""
+    changes = []
+    monkeypatch.setattr(core.paths.os, "PRIO_PROCESS", 0, raising=False)  # POSIX's names, on Windows too
+    monkeypatch.setattr(core.paths.os, "getpriority", lambda which, pid: 3, raising=False)
+    monkeypatch.setattr(core.paths.os, "setpriority", lambda which, pid, nice: changes.append((pid, nice)),
+                        raising=False)
+    return changes
+
+
+def test_yt_dlps_programs_start_below_normal_on_windows(monkeypatch, lowered):
+    monkeypatch.setattr(core.paths, "windows", lambda: True)
+    popen = type("Popen", (FakePopen,), {})
+    core._in_background(popen)
+    core._in_background(popen)  # once only, however many downloads start
+    assert popen(["ffmpeg"], text=True).kwargs == {"text": True, "creationflags": 0x00004000}
+    assert popen(["qjs"], creationflags=0x08000000).kwargs["creationflags"] == 0x08004000  # the flag is added
+    assert lowered == []
+
+
+def test_yt_dlps_programs_are_niced_once_started_elsewhere(monkeypatch, lowered):
+    monkeypatch.setattr(core.paths, "windows", lambda: False)
+    popen = type("Popen", (FakePopen,), {})
+    core._in_background(popen)
+    core._in_background(popen)
+    assert popen(["ffmpeg"]).kwargs == {"creationflags": 0}
+    assert lowered == [(4242, 13)]
+    monkeypatch.setattr(core.paths.os, "getpriority", lambda which, pid: 15)
+    popen(["ffprobe"])
+    assert lowered[-1] == (4242, 19)  # the lowest priority there is
+
+
+def test_a_yt_dlp_without_its_popen_class_still_downloads():
+    core._in_background(None)
+
+
+@pytest.mark.linux
+def test_yt_dlps_programs_really_run_niced():
+    import yt_dlp
+
+    core._ydl({}).close()  # what every resolve and download does first
+    own = os.getpriority(os.PRIO_PROCESS, 0)
+    with yt_dlp.utils.Popen(["sleep", "5"]) as program:
+        try:
+            assert os.getpriority(os.PRIO_PROCESS, program.pid) == min(19, own + core.paths.BACKGROUND_NICE)
+        finally:
+            program.kill()
+
+
+def test_the_cover_crop_runs_below_normal(monkeypatch, lowered):
+    started = []
+
+    class Crop(FakePopen):
+        returncode = 1
+
+        def __enter__(self):
+            started.append(self)
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    monkeypatch.setattr(core, "http_get", lambda url, **_kw: (url, _png(8, 8)))
+    monkeypatch.setattr(core.subprocess, "Popen", Crop)
+    monkeypatch.setattr(core.paths, "windows", lambda: True)
+    assert core.cover_image(["https://example.com/a.jpg"]) is None
+    assert started[-1].kwargs["creationflags"] == 0x08000000 | 0x00004000 and lowered == []
+    monkeypatch.setattr(core.paths, "windows", lambda: False)
+    core.cover_image(["https://example.com/a.jpg"])
+    assert started[-1].kwargs["creationflags"] == 0 and lowered == [(4242, 13)]

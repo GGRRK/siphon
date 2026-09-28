@@ -3,10 +3,12 @@
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import urllib.error
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -189,3 +191,41 @@ def test_versions_compare_as_dates():
     assert engine._parts("2026.08.19") == engine._parts("2026.8.19") < engine._parts("2026.8.19.1")
     assert engine._pin(["requests>=2", 'yt-dlp-ejs==0.9.0; extra == "default"'], "yt-dlp-ejs") == "0.9.0"
     assert engine._pin(["yt-dlp-ejs>=0.8"], "yt-dlp-ejs") == ""
+
+
+# -- the window starts without yt-dlp: 0.3 s and 35 MB that only resolving or downloading a link needs
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def fresh_python(code: str, *args: str) -> list[str]:
+    """What a new Python prints, run from this checkout: sys.modules here holds yt-dlp from other tests."""
+    done = subprocess.run([sys.executable, "-c", code, *args], cwd=ROOT, capture_output=True, text=True, timeout=60,
+                          env={**os.environ, "PYTHONPATH": str(ROOT)})
+    assert done.returncode == 0, done.stderr
+    return done.stdout.split()
+
+
+def test_starting_the_window_imports_no_yt_dlp():
+    loaded, version, real = fresh_python(
+        "import sys; from siphon import app, core; from siphon.ui.updates import Updates; "
+        "updates = Updates(core, lambda: None); loaded = 'yt_dlp' in sys.modules; "
+        "import yt_dlp; print(loaded, updates.engine_version, yt_dlp.version.__version__)")
+    assert (loaded, version) == ("False", real)
+
+
+def test_the_version_of_a_downloaded_engine_is_read_from_its_wheel(tmp_path):
+    wheel_file = tmp_path / "yt_dlp-2099.1.2-py3-none-any.whl"
+    wheel_file.write_bytes(ytdlp_wheel("2099.01.02"))
+    code = ("import sys; sys.path.insert(0, sys.argv[1]); from siphon import core; "
+            "print(core.engine_version(), 'yt_dlp' in sys.modules)")
+    assert fresh_python(code, str(wheel_file)) == ["2099.01.02", "False"]
+
+
+def test_a_version_module_found_nowhere_else_comes_from_yt_dlp_itself(tmp_path):
+    """A package whose folder holds no version module to read (a frozen build's): yt-dlp is imported and asked."""
+    code = ("import importlib.util, sys, types; from siphon import core; "
+            "importlib.util.find_spec = lambda name: types.SimpleNamespace(submodule_search_locations=[sys.argv[1]]); "
+            "version = core.engine_version(); import yt_dlp; "
+            "print(version == yt_dlp.version.__version__, 'yt_dlp' in sys.modules)")
+    assert fresh_python(code, str(tmp_path)) == ["True", "True"]

@@ -7,8 +7,6 @@ import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from yt_dlp.utils import DownloadError
-
 YTM_SEARCH = "https://music.youtube.com/search?q={}#songs"
 THRESHOLD = 0.6  # lowest score accepted as a match
 CONFIDENT = 1.0  # a YouTube Music song this good ends the search early
@@ -152,6 +150,8 @@ def find(ydl, query: str, title: str, artist: str, duration: float | None,
     ydl must be created with extract_flat="in_playlist". YouTube Music search results carry
     only a title, so the most promising few are fetched in full to learn artist and length.
     """
+    from yt_dlp.utils import DownloadError  # here, not at the top: see core.py
+
     cands: list[Candidate] = []
     songs = _search(ydl, YTM_SEARCH.format(urllib.parse.quote(query)), artist, from_ytm=True)
     ranked = sorted(
@@ -179,6 +179,8 @@ def find(ydl, query: str, title: str, artist: str, duration: float | None,
 
 
 def _search(ydl, url: str, artist: str, from_ytm: bool) -> list[Candidate]:
+    from yt_dlp.utils import DownloadError
+
     try:
         result = ydl.extract_info(url, download=False)
     except DownloadError:
