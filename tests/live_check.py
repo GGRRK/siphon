@@ -28,6 +28,10 @@ OTHER_SITES = (
     "https://benprunty.bandcamp.com/track/lanius-battle",
 )
 LONG = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+# A SoundCloud EP read flat names none of its songs; three of the six are locked with DRM and come from YouTube.
+SC_SET = "https://soundcloud.com/the-concept-band/sets/the-royal-concept-ep"
+SC_SONGS = ["World On Fire (Re-Mastered)", "Gimme Twice", "Goldrushed (Re-Mastered)", "D-D-Dance", "In The End",
+            "Knocked Up"]
 
 failures: list[str] = []
 
@@ -125,6 +129,24 @@ def other_site(out: Path) -> None:
     check("SoundCloud or Bandcamp", False, "no site worked")
 
 
+def soundcloud_set(out: Path) -> None:
+    t = time.monotonic()
+    found = core.resolve(SC_SET)
+    check("soundcloud set: every song named, in order", [x.title for x in found.tracks] == SC_SONGS
+          and all(x.artist == "The Royal Concept" for x in found.tracks), f"{time.monotonic() - t:.1f}s")
+    folder = out / "soundcloud-set"
+    paths = []
+    for track in found.tracks:
+        try:
+            paths.append(core.download(track, folder, "opus"))
+        except core.SiphonError as e:
+            check(f"soundcloud set: {track.title}", False, e)
+            continue
+        verify(f"soundcloud set: {track.title}", paths[-1], "opus", track.duration,
+               {"title": track.title, "artist": "The Royal Concept", "album": found.title})
+    check("soundcloud set: a file per song", len(set(paths)) == len(SC_SONGS), [p.name for p in paths])
+
+
 def cancelling(out: Path) -> None:
     for url, stage in ((LONG, "downloading"), (RICK, "matching")):
         folder = out / f"cancel-{stage}"
@@ -155,7 +177,7 @@ def main() -> int:
         base.mkdir(parents=True, exist_ok=True)
     out = Path(tempfile.mkdtemp(prefix="siphon-live-", dir=base))  # fresh, so reruns re-download
     print(f"yt-dlp {core.engine_version()}, writing to {out}")
-    for step in (youtube, spotify_track, spotify_lists, other_site, cancelling):
+    for step in (youtube, spotify_track, spotify_lists, other_site, soundcloud_set, cancelling):
         try:
             step(out)
         except core.SiphonError as e:
