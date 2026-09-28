@@ -79,7 +79,7 @@ def test_every_call_is_declared_and_pointer_sized_where_windows_is():
     dlls = {}
     api = Win32(lambda name: dlls.setdefault(name, FakeDll(name)))
     functions = {f.name: f for dll in dlls.values() for f in dll.functions.values()}
-    assert len(functions) == 27 and all(f.restype != "unset" and f.argtypes != "unset" for f in functions.values())
+    assert len(functions) == 28 and all(f.restype != "unset" and f.argtypes != "unset" for f in functions.values())
     pointer = sizeof(ctypes.c_void_p)
     assert sizeof(HWND) == sizeof(WPARAM) == sizeof(LPARAM) == sizeof(LRESULT) == pointer
     assert (api.DefWindowProcW.restype, tuple(api.DefWindowProcW.argtypes)) == (LRESULT, (HWND, UINT, WPARAM, LPARAM))
@@ -158,6 +158,10 @@ class FakeApi:
         self.calls.append(("CreateWindowExW", ex_style, class_name, title, style, parent))
         self.windows[class_name] = HWND_TRAY
         return HWND_TRAY
+
+    def ChangeWindowMessageFilterEx(self, hwnd, message, action, change):
+        self.calls.append(("ChangeWindowMessageFilterEx", hwnd, message, action, change))
+        return 1
 
     def DestroyWindow(self, hwnd):
         self.calls.append(("DestroyWindow", hwnd))
@@ -288,6 +292,8 @@ def test_the_icon_is_added_on_a_hidden_top_level_window(icon):
     assert created == ("CreateWindowExW", wintray.WS_EX_TOOLWINDOW, wintray.CLASS_NAME, "Siphon Tray", 0, None)
     assert ("RegisterClassExW", wintray.CLASS_NAME, sizeof(WNDCLASSEXW)) in api.calls
     assert ("RegisterWindowMessageW", "TaskbarCreated") in api.calls
+    # let in from Explorer even when Siphon runs elevated
+    assert ("ChangeWindowMessageFilterEx", HWND_TRAY, 0xC0DE, wintray.MSGFLT_ALLOW, None) in api.calls
     assert ("LoadImageW", "siphon.ico", 16, wintray.LR_LOADFROMFILE) in api.calls
     add, version = api.notify_calls()[:2]
     assert (add.message, add.hwnd, add.id, add.callback, add.icon, add.tip, add.size) == (

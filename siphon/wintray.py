@@ -58,6 +58,7 @@ MF_STRING, MF_GRAYED, MF_SEPARATOR = 0x0, 0x1, 0x800
 TPM_RIGHTBUTTON, TPM_NONOTIFY, TPM_RETURNCMD = 0x2, 0x80, 0x100
 WS_EX_TOOLWINDOW = 0x80
 SMTO_ABORTIFHUNG = 0x2
+MSGFLT_ALLOW = 1
 ERROR_ALREADY_EXISTS = 183
 
 CLASS_NAME = "io.github.ggrrk.Siphon.Tray"  # the smoke test and a second Siphon find the window by it
@@ -115,6 +116,7 @@ class Win32:
                 (user32, "CreateWindowExW", HWND, DWORD, c_wchar_p, c_wchar_p, DWORD, c_int, c_int, c_int, c_int,
                  HWND, HMENU, HINSTANCE, c_void_p),
                 (user32, "DestroyWindow", BOOL, HWND),
+                (user32, "ChangeWindowMessageFilterEx", BOOL, HWND, UINT, DWORD, c_void_p),
                 (user32, "DefWindowProcW", LRESULT, HWND, UINT, WPARAM, LPARAM),
                 (user32, "GetMessageW", BOOL, POINTER(MSG), HWND, UINT, UINT),
                 (user32, "TranslateMessage", BOOL, POINTER(MSG)),
@@ -291,6 +293,9 @@ class NotifyIcon:
         if not hwnd:
             raise OSError(f"CreateWindowExW failed with error {api.last_error()}")
         self._hwnd = hwnd
+        # Siphon run as administrator hears Explorer's TaskbarCreated only when it lets it in (UIPI), as pystray
+        # and Qt do
+        api.ChangeWindowMessageFilterEx(hwnd, self._taskbar_created, MSGFLT_ALLOW, None)
         path = str(self._icon_path)
         # the .ico holds 16 to 256 px: Windows picks the size the tray and the balloon need at this DPI
         self._icon = api.LoadImageW(None, path, IMAGE_ICON, api.GetSystemMetrics(SM_CXSMICON),
