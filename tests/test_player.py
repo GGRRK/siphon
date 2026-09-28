@@ -552,16 +552,19 @@ def test_measured_gain_at_every_band_is_the_curve_less_the_preamp(chord, gains, 
         assert level_db(second, hz) == pytest.approx(expected, abs=0.1), hz
 
 
-def test_the_preamp_keeps_a_full_scale_tone_at_the_curves_peak_from_clipping(tmp_path, monkeypatch):
-    loud = (12.0,) * 10  # a preamp of minus the highest slider would leave this 7.6 dB (2.4x) over full scale
-    rate = 44100  # where this curve peaks highest: 19.64 dB at 7988 Hz
-    hz = max(range(4000, 12000), key=lambda f: eq.response(loud, f, rate))
+@pytest.mark.parametrize("loud", [(12.0,) * 10, (24.0,) * 10, (24.0, 24.0) + (0.0,) * 8],
+                         ids=["all +12", "all +24", "31 and 62 Hz +24"])
+def test_the_preamp_keeps_a_full_scale_tone_at_the_curves_peak_from_clipping(loud, tmp_path, monkeypatch):
+    """A preamp of minus the highest slider would leave every band at +12 7.6 dB (2.4x) over full scale, at +24
+    20.5 dB (10.6x). At 44.1 kHz these peak highest: 19.64 dB at 7988 Hz, 44.50 dB at 4003 Hz, 30.55 dB at 31 Hz."""
+    rate = 44100
+    hz = max(range(20, 20000), key=lambda f: eq.response(loud, f, rate))
     path = tmp_path / "full.wav"
     subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
                     f"aevalsrc=sin(2*PI*{hz}*t):s={rate}:d=2", "-c:a", "pcm_s24le", str(path)], check=True)
     samples = record(Song(path, "Full", "", "", 0.0, None, 0.0, 1), loud, tmp_path, monkeypatch)
     peak = max(map(abs, samples[rate:]))
-    assert 0.98 < peak < 1.0  # close to full scale, not over it: the preamp is 19.7 dB for a 19.64 dB peak
+    assert 0.98 < peak < 1.0  # close to full scale, not over it: e.g. a preamp of 19.7 dB for a 19.64 dB peak
 
 
 def test_the_bands_hand_the_sound_on_as_floats(chord, tmp_path, monkeypatch):

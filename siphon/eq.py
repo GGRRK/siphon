@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 FREQUENCIES = (31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000)  # Hz, an octave apart
 LABELS = ("31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k")
-MIN_DB, MAX_DB = -12.0, 12.0  # the usual range of a graphic equalizer (EasyEffects' too)
+MIN_DB, MAX_DB = -24.0, 24.0  # room for a deep cut or a big lift; headroom() keeps even every band at +24 from clipping
 STEP_DB = 0.5  # half the ~1 dB smallest level change people hear, so a slider step never jumps audibly
 FLAT = (0.0,) * len(FREQUENCIES)
 BUILT_IN: dict[str, tuple[float, ...]] = {
@@ -207,8 +207,10 @@ def step(here: Sequence[float], target: Sequence[float]) -> tuple[float, ...]:
 
     Changed by commands, a band moves smoothly (its filter keeps its state) but the preamp, a plain gain, jumps. On a
     100 Hz tone at 0.25 of full scale, played in real time, the sharpest bend in the wave against a clean sine's at
-    +12 dB, over two runs: Rock switched off in one jump 520x, in these steps 37-58x; Rock to Custom 182-251x, stepped
-    49-55x. The way is a straight line in dB per band, cut short where the curve would peak higher on it.
+    +12 dB, over three runs: Rock switched off in one jump 370x, in these steps 77x; every band from 0 to +24 dB in one
+    jump 6188x, there and back in these steps 139-186x over 2.8-3.0 s. Steps of 1 dB, or every 12 ms, were quicker
+    (1.3-2.6 s) but bent the wave up to 396x and 288x (measured 2026-09-28). The way is a straight line in dB per band,
+    cut short where the curve would peak higher on it.
     """
     here, target = tuple(here), tuple(target)
     # rounded: headroom() gives tenths, and -8.3 - -7.8 is 0.5000000000000009, which would make two steps of one
@@ -297,8 +299,11 @@ def _headroom(gains: tuple[float, ...]) -> float:
     return -math.ceil(round((peak + _MARGIN_DB) * 10, 6)) / 10 + 0.0
 
 
-# ffmpeg runs these filters in 32-bit float: a lone +12 dB band under a preamp of exactly -12.0 dB turned a
-# full-scale tone at its centre into a 1.0001 peak (measured, ffmpeg 9.0.2); this much more keeps it under 1.0.
+# The bands work in double, so the filters add nothing measurable to a curve's peak: a full-scale tone at the peak of
+# 40 curves (each band at +24 alone, beside a neighbour at +24 or -24, all at +24, alternating +24/-24) under a preamp
+# of exactly minus the peak came out at most 1e-6 dB over 1.0 at 44.1 and 48 kHz (in float, up to 0.027 dB; measured,
+# ffmpeg 9.0.2). This much more covers the float preamp and the peak search with room; in resampled slower files such
+# tones stayed under 1.0 too.
 _MARGIN_DB = 0.05
 
 
@@ -306,6 +311,6 @@ def headroom(gains: Sequence[float]) -> float:
     """The preamp in dB (0 or less, a multiple of 0.1) that keeps the loudest point of the curve below 0 dB.
 
     Neighbouring bells overlap, so the curve can rise well above the highest slider: Bass (+6 at most) peaks at
-    7.96 dB and every band at +12 at 19.64 dB, so a preamp of minus the highest slider would still clip.
+    7.96 dB and every band at +24 at 44.50 dB, so a preamp of minus the highest slider would still clip.
     """
     return _headroom(tuple(gains))

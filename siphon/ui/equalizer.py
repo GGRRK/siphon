@@ -9,8 +9,12 @@ from .. import eq
 from .dialogs import ask_name, confirm
 from .songmenu import quoted
 
-_SLIDER_HEIGHT = 168  # 144 px of trough inside Adwaita's padding (measured): 3 px for each of the 48 half-dB steps
-_PAGE_DB = 3.0  # Page Up/Down; the arrows move one STEP_DB
+# 192 px of trough inside Adwaita's padding (measured): 2 px for each of the 96 half-dB steps. The 3 px of +/-12 would
+# have made the page, whose height the whole Settings dialog takes, 649 px tall instead of 553 (505 at +/-12)
+_SLIDER_HEIGHT = 216
+# Page Up/Down; the arrows move one STEP_DB, Home and End (GTK's own) go to -24 and +24. Kept at 3 dB: fine enough for
+# the -2 to +6 dB the built-in presets span, while the far ends are a key away
+_PAGE_DB = 3.0
 _VALUE_SHOWN_MS = 1000  # the readout stays this long after the last change, unless a slider is still held
 
 
@@ -106,7 +110,7 @@ class EqualizerPage(Adw.PreferencesPage):
     def _band(self, index: int, hz: int, label: str) -> Gtk.Box:
         adjustment = Gtk.Adjustment(lower=eq.MIN_DB, upper=eq.MAX_DB, step_increment=eq.STEP_DB,
                                     page_increment=_PAGE_DB)
-        # inverted: +12 dB at the top, and the Up arrow raises the gain
+        # inverted: +24 dB at the top, and the Up arrow raises the gain
         scale = Gtk.Scale(orientation=Gtk.Orientation.VERTICAL, adjustment=adjustment, inverted=True,
                           draw_value=False, digits=1, has_origin=False, height_request=_SLIDER_HEIGHT,
                           vexpand=True, halign=Gtk.Align.CENTER)

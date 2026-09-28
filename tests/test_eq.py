@@ -34,7 +34,9 @@ def test_a_new_equalizer_is_on_and_flat_so_nothing_plays_until_a_curve_is_picked
     assert fresh.gains() is None
 
 
-@pytest.mark.parametrize("db, snapped", [(3.2, 3.0), (3.3, 3.5), (-0.2, 0.0), (99, 12.0), (-99, -12.0), (-12.4, -12.0)])
+@pytest.mark.parametrize("db, snapped", [(3.2, 3.0), (3.3, 3.5), (-0.2, 0.0), (17.2, 17.0), (-20.8, -21.0),
+                                         (24.0, 24.0), (-24.0, -24.0), (99, 24.0), (-99, -24.0), (-24.4, -24.0),
+                                         (24.2, 24.0)])
 def test_a_band_snaps_to_half_decibels_inside_the_range(db, snapped):
     model = Equalizer()
     model.set_band(4, db)
@@ -177,9 +179,27 @@ def test_each_missing_or_damaged_value_falls_back_to_its_default():
 
 
 def test_saved_values_are_snapped_and_clamped():
-    loaded = eq.from_json({"bands": [30, -30, 1.26, 0, 0, 0, 0, 0, 0, 0]}, Equalizer())
-    assert loaded.bands == (12.0, -12.0, 1.5, 0, 0, 0, 0, 0, 0, 0)
+    loaded = eq.from_json({"bands": [30, -30, 1.26, 18.5, -13.2, 0, 0, 0, 0, 0]}, Equalizer())
+    assert loaded.bands == (24.0, -24.0, 1.5, 18.5, -13.0, 0, 0, 0, 0, 0)
     assert loaded.preset == CUSTOM
+
+
+def test_what_0_1_4_saved_inside_its_12_db_loads_unchanged():
+    edge = [12.0, -12.0, 11.5, -11.5, 0.5, -0.5, 6.0, -6.0, 12.0, -12.0]
+    data = {"enabled": True, "bands": edge, "preset": "Edge", "presets": {"Edge": edge, "Mine": list(MINE)}}
+    assert eq.from_json(data, Equalizer()) == Equalizer(True, tuple(edge), "Edge", {"Edge": tuple(edge), "Mine": MINE})
+
+
+def test_curves_beyond_12_db_are_kept_saved_and_loaded(tmp_path, defaults):
+    wide = (24.0, -24.0, 18.5, -13.0, 12.5, 0.0, -0.5, 20.0, -20.0, 24.0)
+    model = Equalizer()
+    for index, db in enumerate(wide):
+        model.set_band(index, db)
+    assert (model.bands, model.preset) == (wide, CUSTOM)
+    model.save("Wide")
+    path = tmp_path / "settings.json"
+    settings.save(settings.Settings("opus", tmp_path, equalizer=model), path)
+    assert settings.load(defaults, FORMATS, path).equalizer == Equalizer(True, wide, "Wide", {"Wide": wide})
 
 
 def test_bad_presets_are_dropped_one_by_one():
@@ -248,11 +268,6 @@ PAIR_24 = (24.0, 24.0, 0, 0, 0, 0, 0, 0, 0, 0)  # the sharpest top: 31 and 62 Hz
 UP_DOWN = (24.0, -24.0) * 5
 
 
-ALL_24 = (24.0,) * 10
-PAIR_24 = (24.0, 24.0, 0, 0, 0, 0, 0, 0, 0, 0)  # the sharpest top: 31 and 62 Hz together
-UP_DOWN = (24.0, -24.0) * 5
-
-
 @pytest.mark.parametrize("gains, preamp", [
     (FLAT, 0.0), ((-12.0,) * 10, 0.0), ((-24.0,) * 10, 0.0), (BUILT_IN["Bass"], -8.1), (BUILT_IN["Treble"], -9.4),
     (ROCK, -7.8), ((0, 0, 0, 0, 0, 12.0, 0, 0, 0, 0), -12.1), ((12.0,) * 10, -19.7),
@@ -296,14 +311,28 @@ def test_headroom_covers_the_true_peak_of_any_curve_with_the_margin():
 
 
 @pytest.mark.parametrize("start, end", [(ROCK, FLAT), (FLAT, ROCK), (ROCK, MINE), (FLAT, (12.0,) * 10),
-                                        (BUILT_IN["Bass"], BUILT_IN["Treble"])])
+                                        (BUILT_IN["Bass"], BUILT_IN["Treble"]), (ROCK, UP_DOWN), (UP_DOWN, ROCK),
+                                        ((-24.0,) * 10, ALL_24)])
 def test_steps_move_the_preamp_at_most_half_a_decibel_and_arrive(start, end):
     walked = [start]
     while walked[-1] != end:
         walked.append(eq.step(walked[-1], end))
-        assert len(walked) < 100
+        assert len(walked) < 200
     preamps = [eq.headroom(gains) for gains in walked]
-    assert max(abs(b - a) for a, b in zip(preamps, preamps[1:])) <= 0.6  # 0.5, and the rounding to 0.1 dB
+    assert max(abs(b - a) for a, b in zip(preamps, preamps[1:])) <= eq.PREAMP_STEP_DB + 0.1  # and headroom()'s tenth
+
+
+@pytest.mark.parametrize("start, end", [(FLAT, ALL_24), (ALL_24, FLAT)])
+def test_flat_to_every_band_at_24_db_and_back_is_the_longest_way_and_ends(start, end):
+    """The preamp moves 44.6 dB, the most it can: about 100 steps, 2.5 s at the player's pace."""
+    walked = [start]
+    while walked[-1] != end:
+        walked.append(eq.step(walked[-1], end))
+        assert len(walked) <= 2 * math.ceil(44.6 / eq.PREAMP_STEP_DB)
+    moves = [eq.headroom(b) - eq.headroom(a) for a, b in zip(walked, walked[1:])]
+    assert max(map(abs, moves)) <= eq.PREAMP_STEP_DB + 0.1
+    assert len({move > 0 for move in moves if move}) == 1  # always the same way: never back and forth
+    assert all(min(a, b) <= db <= max(a, b) for curve in walked for a, b, db in zip(start, end, curve))
 
 
 def test_a_step_that_moves_the_preamp_half_a_decibel_or_less_goes_all_the_way():

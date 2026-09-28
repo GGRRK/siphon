@@ -22,7 +22,7 @@ def test_every_band_has_a_name_and_a_caption():
 
 
 @pytest.mark.parametrize("db, text", [(0.0, "0 dB"), (-0.0, "0 dB"), (3.5, "+3.5 dB"), (-12.0, "-12 dB"),
-                                      (12.0, "+12 dB"), (-0.5, "-0.5 dB")])
+                                      (12.0, "+12 dB"), (-0.5, "-0.5 dB"), (-24.0, "-24 dB"), (23.5, "+23.5 dB")])
 def test_decibels(db, text):
     assert equalizer.decibels(db) == text
 
