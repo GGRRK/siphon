@@ -443,6 +443,43 @@ def test_a_windowed_session_writes_everything_to_the_log(tmp_path):
     assert sorted(log.read_text(encoding="utf-8").splitlines()) == sorted(expected)
 
 
+_WINDOWS_TRAY = """
+import sys
+from gi.repository import GObject
+sys.platform = "win32"  # before Siphon loads (after GLib's asyncio support, which would load Windows's)
+sys.path.insert(0, sys.argv[1])
+from siphon import tray, wintray
+
+class Icon:
+    session_ending = False
+    def __init__(self, owner):
+        pass
+    def update(self, state):
+        pass
+    def balloon(self, heading, body):
+        return True
+    def close(self):
+        pass
+
+class Player(GObject.Object):
+    __gsignals__ = {"changed": (GObject.SignalFlags.RUN_FIRST, None, ())}
+    current = None
+
+wintray.NotifyIcon = Icon
+made = tray.create(Player(), object())
+linux = [name for name in ("siphon.linuxtray", "siphon.xembed", "siphon.sni", "Xlib") if name in sys.modules]
+print(type(made._backend).__name__, linux)
+"""
+
+
+def test_windows_keeps_its_own_tray_and_loads_nothing_of_linuxs():
+    """The notification area; neither the StatusNotifierItem, nor the X tray, nor what picks between them."""
+    done = subprocess.run([sys.executable, "-c", _WINDOWS_TRAY, str(ROOT)], capture_output=True, text=True,
+                          timeout=60)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.split() == ["Icon", "[]"]
+
+
 def test_the_windows_ffmpeg_keeps_the_equalizers_filters():
     """build-av.sh trims ffmpeg for Windows; mpv silently drops a filter libavfilter lacks, so the equalizer
     (ffmpeg's aformat, volume and equalizer filters) would just stop working there. The selftest checks the built

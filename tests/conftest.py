@@ -52,6 +52,21 @@ def fixture_text():
     return lambda name: (ROOT / "tests" / "fixtures" / name).read_text(encoding="utf-8")
 
 
+@pytest.fixture(scope="session")
+def x_display():
+    """The name of a private X display nobody sees (Xvfb, or gamescope's headless backend), for the XEmbed tray;
+    skips without python-xlib (a test dependency only) or without either server."""
+    if sys.platform == "win32":
+        pytest.skip("X11 only")
+    pytest.importorskip("Xlib")
+    from xtray import x_server
+
+    with x_server() as name:
+        if name is None:
+            pytest.skip("needs Xvfb or gamescope for an invisible X server")
+        yield name
+
+
 @pytest.fixture(scope="module")
 def bus(tmp_path_factory):
     """The address of a private session bus: our own dbus-daemon with no service directories, so nothing can be

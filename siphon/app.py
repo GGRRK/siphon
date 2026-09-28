@@ -201,6 +201,13 @@ class SiphonApp(Adw.Application):
             if token and self._window is not None:
                 self._window.set_startup_id(token)  # Wayland: the click's activation token lets it take focus
             self.activate()
+        elif command == tray.TOGGLE:
+            window = self._window
+            if window is not None and window.get_visible() and window.is_active() and self.hides_on_close():
+                source.take_token()  # the click's, for showing: not this time
+                window.close()  # into the tray
+            else:
+                self._on_tray_command(source, tray.SHOW)
         elif command == tray.PLAY_PAUSE:
             if player.current is not None:
                 player.toggle()
