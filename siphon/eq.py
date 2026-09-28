@@ -229,9 +229,13 @@ def commands(old: Sequence[float], new: Sequence[float]) -> list[tuple[str, str,
 # The sample rates downloads decode at (Opus always at 48 kHz). The bilinear transform squeezes the top bands' bells
 # toward the Nyquist frequency, so the lower rate peaks higher: Treble 9.28 dB at 44.1 kHz, 8.96 dB at 48 kHz.
 _RATES = (44100, 48000)
-# grid points per octave from 20 Hz; a parabola through the top points finds the peak between them, to within
-# 0.0023 dB of a 1/384-octave search refined by golden section (the worst of 150 random curves)
+# Grid points per octave from 20 Hz. At +/-24 a top can sit 0.43 dB above the nearest point (0.10 dB at +/-12), so
+# every local peak within _NEAR_DB of the highest point is looked at: a parabola through it and its neighbours, then
+# a second through that one's top and points an eighth of a step either side (the first alone fell 0.02 dB short at
+# +/-24). That finds the peak to within 0.00004 dB of a 1/384-octave search refined by golden section (the worst of
+# 450 random curves inside +/-24).
 _PER_OCTAVE = 12
+_NEAR_DB = 1.0
 _GRID = tuple(20 * 2 ** (k / _PER_OCTAVE) for k in range(10 * _PER_OCTAVE + 1))  # 20 Hz - 20.48 kHz
 
 
@@ -250,19 +254,34 @@ def response(gains: Sequence[float], hz: float, rate: int) -> float:
     return total
 
 
-@functools.lru_cache(maxsize=64)
-def _headroom(gains: tuple[float, ...]) -> float:
+def _vertex(left: float, mid: float, right: float) -> float:
+    """Where a parabola through three evenly spaced levels peaks, in spacings from the middle one."""
+    bend = left - 2 * mid + right
+    return 0.5 * (left - right) / bend if bend else 0.0
+
+
+def _peak(gains: tuple[float, ...]) -> float:
+    """The curve's highest level in dB at either of _RATES, found as the comment on _PER_OCTAVE says; 0 or less when
+    it only cuts."""
     peak = 0.0
     for rate in _RATES:
         levels = [response(gains, hz, rate) for hz in _GRID]
         top = max(levels)
         for k in range(1, len(levels) - 1):
-            # every local peak within 0.1 dB of the highest point: a slightly lower one may hide a higher top
+            # every local peak near the highest point: a slightly lower one may hide a higher top
             left, mid, right = levels[k - 1], levels[k], levels[k + 1]
-            if mid >= left and mid >= right and mid > top - 0.1 and left + right != 2 * mid:
-                shift = 0.5 * (left - right) / (left - 2 * mid + right)
-                top = max(top, response(gains, _GRID[k] * 2 ** (shift / _PER_OCTAVE), rate))
+            if mid >= left and mid >= right and mid > top - _NEAR_DB and left + right != 2 * mid:
+                hz = _GRID[k] * 2 ** (_vertex(left, mid, right) / _PER_OCTAVE)
+                spread = 2 ** (1 / (8 * _PER_OCTAVE))
+                near = [response(gains, hz * spread ** side, rate) for side in (-1, 0, 1)]
+                top = max(top, *near, response(gains, hz * spread ** _vertex(*near), rate))
         peak = max(peak, top)
+    return peak
+
+
+@functools.lru_cache(maxsize=64)
+def _headroom(gains: tuple[float, ...]) -> float:
+    peak = _peak(gains)
     if peak <= 1e-9:  # cuts only: nothing rises above 0 dB but float noise
         return 0.0
     # rounded before ceil: float noise (12.000000000000002) must not cost another 0.1 dB

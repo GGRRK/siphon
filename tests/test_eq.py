@@ -241,27 +241,51 @@ def test_commands_change_only_what_moved_and_turn_down_before_boosting():
     assert eq.commands(ROCK, ROCK) == []
 
 
+ALL_24 = (24.0,) * 10
+PAIR_24 = (24.0, 24.0, 0, 0, 0, 0, 0, 0, 0, 0)  # the sharpest top: 31 and 62 Hz together
+UP_DOWN = (24.0, -24.0) * 5
+
+
 @pytest.mark.parametrize("gains, preamp", [
-    (FLAT, 0.0), ((-12.0,) * 10, 0.0), (BUILT_IN["Bass"], -8.1), (BUILT_IN["Treble"], -9.4), (ROCK, -7.8),
-    ((0, 0, 0, 0, 0, 12.0, 0, 0, 0, 0), -12.1), ((12.0,) * 10, -19.7),
+    (FLAT, 0.0), ((-12.0,) * 10, 0.0), ((-24.0,) * 10, 0.0), (BUILT_IN["Bass"], -8.1), (BUILT_IN["Treble"], -9.4),
+    (ROCK, -7.8), ((0, 0, 0, 0, 0, 12.0, 0, 0, 0, 0), -12.1), ((12.0,) * 10, -19.7),
+    ((0, 0, 0, 0, 0, 24.0, 0, 0, 0, 0), -24.1), (ALL_24, -44.6), (PAIR_24, -30.7), (UP_DOWN, -19.1),
+    ((-24.0, 24.0) * 5, -21.1),
 ])
 def test_headroom_is_the_curves_highest_point_and_a_margin_not_the_highest_slider(gains, preamp):
-    """Bass peaks at 7.96, Treble at 9.28 (44.1 kHz), Rock at 7.67, every band at +12 at 19.64 dB; 0.05 dB more for
-    ffmpeg's float arithmetic, rounded up to the next tenth."""
+    """Bass peaks at 7.96, Treble at 9.28 (44.1 kHz), Rock at 7.67, every band at +12 at 19.64 dB and at +24 at 44.50,
+    31 and 62 Hz at +24 at 30.55 (0.014 dB above 0.1.4's search, which gave -30.6), +24/-24 alternating at 19.03,
+    -24/+24 at 21.02; 0.05 dB more, rounded up to the next tenth."""
     assert eq.headroom(gains) == preamp
 
 
-def _dense_peak(gains) -> float:
-    return max(eq.response(gains, 20 * 2 ** (k / 96), rate) for rate in (44100, 48000) for k in range(961))
+def _true_peak(gains) -> float:
+    """The curve's top the slow way: every 1/96 octave, then a golden-section search around each local peak."""
+    best = 0.0
+    for rate in (44100, 48000):
+        octaves = [k / 96 for k in range(961)]
+        levels = [eq.response(gains, 20 * 2 ** o, rate) for o in octaves]
+        for k in range(1, len(octaves) - 1):
+            if levels[k - 1] <= levels[k] >= levels[k + 1]:
+                low, high = octaves[k - 1], octaves[k + 1]
+                for _ in range(40):
+                    a, b = high - (high - low) * 0.618034, low + (high - low) * 0.618034
+                    if eq.response(gains, 20 * 2 ** a, rate) > eq.response(gains, 20 * 2 ** b, rate):
+                        high = b
+                    else:
+                        low = a
+                best = max(best, levels[k], eq.response(gains, 20 * 2 ** ((low + high) / 2), rate))
+    return best
 
 
 def test_headroom_covers_the_true_peak_of_any_curve_with_the_margin():
     rng = random.Random(7)
-    for _ in range(12):
-        gains = tuple(eq.snap(rng.uniform(eq.MIN_DB, eq.MAX_DB)) for _ in eq.FREQUENCIES)
-        peak = _dense_peak(gains)
-        # the peak search may miss the top by a few thousandths of a dB, which the 0.05 dB margin absorbs
-        assert -peak - 0.15 <= eq.headroom(gains) <= -peak - 0.05 + 0.003 or peak <= 0
+    curves = [ALL_24, PAIR_24, (-24.0, 24.0) + FLAT[2:], UP_DOWN, FLAT[:8] + (24.0, -24.0)]
+    curves += [tuple(eq.snap(rng.uniform(eq.MIN_DB, eq.MAX_DB)) for _ in eq.FREQUENCIES) for _ in range(12)]
+    for gains in curves:
+        peak = _true_peak(gains)
+        # the whole margin above the true peak (the search finds it to 0.00004 dB), and at most a tenth more
+        assert -peak - eq._MARGIN_DB - 0.1 <= eq.headroom(gains) <= -peak - eq._MARGIN_DB + 1e-4 or peak <= 0, gains
 
 
 @pytest.mark.parametrize("start, end", [(ROCK, FLAT), (FLAT, ROCK), (ROCK, MINE), (FLAT, (12.0,) * 10),
