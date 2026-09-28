@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 from gi.repository import Gio, GLib, GObject
 
-from siphon import sni, tray
+from siphon import linuxtray, sni, tray
 from siphon.bus import export
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning:gi.events")  # MainContext.iteration()
@@ -136,8 +136,27 @@ def test_no_tray_when_switched_off_or_without_a_bus(monkeypatch):
     monkeypatch.setenv("SIPHON_NO_TRAY", "1")
     assert tray.create(Player(), object()) is None
     monkeypatch.delenv("SIPHON_NO_TRAY")
+    monkeypatch.delenv("SIPHON_XEMBED", raising=False)
     monkeypatch.setattr("sys.platform", "linux")
-    assert tray.create(Player(), None) is None
+    assert tray.create(Player(), None) is None  # nor X to look on: GTK is not on X11 here
+
+
+def test_without_a_bus_the_x_tray_alone_and_no_x_server_is_no_harm(monkeypatch):
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setenv("SIPHON_XEMBED", "1")
+    monkeypatch.setenv("DISPLAY", ":97")  # no such server
+    icon = tray.create(Player(), None)
+    assert icon is not None and icon._backend.name == "" and icon._backend.xembed is None
+    assert not icon.available
+    icon.close()
+
+
+def test_the_toggle_command_passes():
+    icon = tray.Tray(Player(), FakeBackend)
+    seen = []
+    icon.connect("command", lambda _t, command: seen.append(command))
+    icon.run(tray.TOGGLE)
+    assert seen == [tray.TOGGLE]
 
 
 # ---------------------------------------------------------------- icons
@@ -453,3 +472,100 @@ def test_closing_releases_the_name(item):
 def test_no_pixmaps_from_a_missing_file(tmp_path, caplog):
     assert sni.pixmaps(Path(tmp_path / "none.svg")) == []
     assert "no pixmaps" in caplog.text
+
+
+# ---------------------------------------------------------------- Linux: StatusNotifierItem, else XEmbed
+
+
+class FakeXIcon:
+    """siphon.xembed.XEmbedIcon's side: a tray that embeds it at once when enabled (docks) or never."""
+
+    def __init__(self, owner, docks: bool = True) -> None:
+        self.owner, self.docks, self.enabled, self.updates, self.closed = owner, docks, False, [], 0
+
+    def set_enabled(self, enabled: bool) -> None:
+        self.enabled = enabled
+        self.owner.set_available(enabled and self.docks)
+
+    def update(self, state) -> None:
+        self.updates.append(state)
+
+    def close(self) -> None:
+        self.closed += 1
+
+
+@pytest.fixture
+def linux(bus):
+    """A Tray over LinuxTray on its own connection, with a fake XEmbed icon when one is asked for."""
+    connection = connect(bus)
+    made = SimpleNamespace(icons=[], heard=[], closers=[], bus=bus, player=Player(), docks=True, x_there=True)
+
+    def start_x(owner):
+        if not made.x_there:
+            return None
+        made.icons.append(FakeXIcon(owner, made.docks))
+        return made.icons[-1]
+
+    made.start = lambda: setattr(made, "tray", tray.Tray(made.player, lambda owner: linuxtray.LinuxTray(
+        owner, connection, start_x)))
+    yield made
+    for close in made.closers:
+        close()
+    if hasattr(made, "tray"):
+        made.tray.close()
+    connection.close_sync(None)
+
+
+def test_without_a_bar_the_x_tray_takes_over_and_gives_way_to_one(linux):
+    linux.start()
+    pump(lambda: linux.icons and linux.icons[0].enabled and linux.tray.available)
+    x = linux.icons[0]
+    watcher = start_watcher(linux)  # a bar with StatusNotifierItems starts
+    pump(lambda: watcher.items and not x.enabled)
+    assert linux.tray.available  # never unavailable in between: the item was hosted before the X icon left
+    watcher.stop()  # and quits
+    pump(lambda: x.enabled)
+    assert linux.tray.available and len(linux.icons) == 1  # the same X icon again
+
+
+def test_a_watcher_without_a_bar_leaves_the_x_tray_in_charge(linux):
+    start_watcher(linux, hosted=False)
+    linux.start()
+    pump(lambda: linux.icons and linux.icons[0].enabled and linux.tray.available)
+    linger()
+    assert linux.icons[0].enabled
+
+
+def test_a_bar_from_the_start_needs_no_x(linux):
+    watcher = start_watcher(linux)
+    linux.start()
+    pump(lambda: linux.tray.available and watcher.items)
+    linger()
+    assert linux.icons == []
+
+
+def test_neither_kind_leaves_it_unavailable(linux):
+    linux.x_there = False
+    linux.start()
+    linger(0.5)
+    assert not linux.tray.available
+    linux.x_there, linux.docks = True, False
+    other = tray.Tray(Player(), lambda owner: linuxtray.LinuxTray(owner, None, lambda o: FakeXIcon(o, docks=False)))
+    assert not other.available and other._backend.xembed.enabled
+    other.close()
+
+
+def test_the_x_icons_clicks_and_updates_go_through(linux):
+    linux.start()
+    pump(lambda: linux.icons and linux.tray.available)
+    x = linux.icons[0]
+    linux.tray.connect("command", lambda _t, command: linux.heard.append(command))
+    linux.tray.connect("scroll", lambda _t, notches: linux.heard.append(notches))
+    x.owner.run(tray.TOGGLE)
+    x.owner.run(tray.QUIT)
+    x.owner.scroll(-1.0)
+    assert linux.heard == [tray.TOGGLE, tray.QUIT, -1.0] and x.owner.state == tray.State()
+    linux.player.load("Title", "Artist")
+    assert x.updates == [tray.state_of(linux.player)]
+    linux.tray.close()
+    assert x.closed == 1 and not linux.tray.available

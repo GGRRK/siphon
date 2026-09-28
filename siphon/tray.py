@@ -1,9 +1,10 @@
 """Siphon's icon in the system tray: its menu and tooltip, built from the player, on either platform.
 
-Linux publishes a StatusNotifierItem and its dbusmenu on the session bus (siphon/sni.py), Windows puts an icon in
-the notification area (siphon/wintray.py). Both draw the menu that menu() describes and hand what the user picks
-back to the GTK main loop, where Tray emits it. The icon shows for as long as Siphon runs; with the window closed
-to the tray it is the way back in.
+Linux publishes a StatusNotifierItem and its dbusmenu on the session bus (siphon/sni.py), or docks an icon into an X
+session's legacy tray where no bar shows those (siphon/xembed.py, picked by siphon/linuxtray.py); Windows puts an
+icon in the notification area (siphon/wintray.py). All draw the menu that menu() describes and hand what the user
+picks back to the GTK main loop, where Tray emits it. The icon shows for as long as Siphon runs; with the window
+closed to the tray it is the way back in.
 """
 
 import os
@@ -16,6 +17,7 @@ from gi.repository import GObject
 from . import paths
 
 SHOW, PLAY_PAUSE, NEXT, PREVIOUS, QUIT = "show", "play-pause", "next", "previous", "quit"
+TOGGLE = "toggle"  # the X tray's left click: hide the window when it is in front, show it otherwise
 # The menu's item ids: dbusmenu's, and the WM_COMMAND ids of the Windows menu (the smoke test posts QUIT's).
 IDS = {SHOW: 1, PLAY_PAUSE: 4, NEXT: 5, PREVIOUS: 6, QUIT: 8}
 COMMANDS = {number: command for command, number in IDS.items()}
@@ -96,7 +98,7 @@ class Backend(Protocol):
 class Tray(GObject.Object):
     """The platform's tray icon, kept in step with the player.
 
-    "command" carries SHOW, PLAY_PAUSE, NEXT, PREVIOUS or QUIT; "scroll" a number of wheel notches (up is
+    "command" carries SHOW, TOGGLE, PLAY_PAUSE, NEXT, PREVIOUS or QUIT; "scroll" a number of wheel notches (up is
     positive); "open" the command line of a second Siphon (Windows); "session-end" says Windows is logging off
     or shutting down. available is False while nothing shows the icon: closing the window must quit then.
     """
@@ -114,8 +116,9 @@ class Tray(GObject.Object):
         self._player = player
         self.state = state_of(player)
         self._token = ""
+        self._backend: Backend | None = None
+        self._changed = player.connect("changed", self._on_player_changed)  # first: a backend may report at once
         self._backend = make_backend(self)
-        self._changed = player.connect("changed", self._on_player_changed)
 
     @property
     def session_ending(self) -> bool:
@@ -148,7 +151,7 @@ class Tray(GObject.Object):
     # -- from the backend, on the main thread
 
     def run(self, command: str) -> None:
-        if self._changed and command in IDS:
+        if self._changed and (command in IDS or command == TOGGLE):
             self.emit("command", command)
 
     def scroll(self, notches: float) -> None:
@@ -172,22 +175,23 @@ class Tray(GObject.Object):
 
     def _on_player_changed(self, player: Any) -> None:
         state = state_of(player)
-        if state != self.state:  # "changed" also fires for the volume, shuffle and repeat
+        if state != self.state and self._backend is not None:  # "changed" also fires for the volume, shuffle...
             self.state = state
             self._backend.update(state)
 
 
 def create(player: Any, bus: Any) -> Tray | None:
-    """The tray for this platform: Windows's notification area, or a StatusNotifierItem on the session bus
-    (None without one). SIPHON_NO_TRAY=1 leaves it out."""
+    """The tray for this platform: Windows's notification area; on Linux a StatusNotifierItem on the session bus
+    or an XEmbed icon in an X tray (None with neither a bus nor X to look on). SIPHON_NO_TRAY=1 leaves it out."""
     if os.environ.get("SIPHON_NO_TRAY") == "1":
         return None
     if paths.windows():
         from .wintray import NotifyIcon
 
         return Tray(player, NotifyIcon)
-    if bus is None:
-        return None
-    from .sni import StatusNotifierItem
+    from . import xembed
+    from .linuxtray import LinuxTray
 
-    return Tray(player, lambda tray: StatusNotifierItem(bus, tray))
+    if bus is None and xembed.display_name() is None:
+        return None
+    return Tray(player, lambda tray: LinuxTray(tray, bus))

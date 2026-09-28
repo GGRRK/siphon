@@ -200,6 +200,7 @@ class StatusNotifierItem:
         except GLib.Error as exc:
             log.warning("no tray icon: %s", exc.message)
             self.close()
+            tray.set_available(False)  # said once, so that another kind of icon can take over
             return
         self._signals = bus.signal_subscribe(None, WATCHER, None, WATCHER_PATH, None, Gio.DBusSignalFlags.NONE,
                                              self._on_watcher_signal)

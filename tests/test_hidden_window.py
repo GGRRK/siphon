@@ -148,8 +148,9 @@ def test_a_hidden_window_lets_the_cover_cache_go_but_keeps_the_covers_on_screen(
 
 
 # The whole Siphon (the real engine, library and libmpv player, silent) closed to the tray and brought back by it.
-# The tray's other side is a bar's (test_tray's fake StatusNotifierWatcher and dbusmenu client, on the private bus) or
-# Windows's notification area (test_wintray's fake user32 and shell32, running the real window procedure).
+# The tray's other side is a bar's (test_tray's fake StatusNotifierWatcher and dbusmenu client, on the private bus),
+# an X session's legacy tray (tests/xtray.py on an invisible X server: GTK beside it on Broadway, or on that X server
+# itself), or Windows's notification area (test_wintray's fake user32 and shell32, running the real window procedure).
 _TRAY = """
 import json, os, sys, threading, time
 sys.path[:0] = [sys.argv[1], sys.argv[1] + "/tests"]
@@ -181,6 +182,24 @@ class Bar:
         self.client.item("Activate", "ii", 0, 0)
     def choose(self, command):
         self.client.click(tray.IDS[command])
+
+class XTray:
+    \"\"\"An X session's legacy tray, with nothing on the bus to show StatusNotifierItems.\"\"\"
+    def __init__(self, app):
+        from xtray import TrayManager
+        self.app = app
+        self.manager = TrayManager(os.environ["DISPLAY"])
+        GLib.timeout_add(10, lambda: self.manager.pump() or True)
+    def click(self):
+        self.manager.click(1)
+    def choose(self, command):
+        menu = self.app.tray._backend.xembed.menu
+        self.manager.click(3)
+        run_until(lambda: menu.is_open)
+        linger(0.1)
+        left, top = menu.position
+        top_row, bottom_row = next((a, b) for a, b, item in menu._rows if item.command == command)
+        self.manager.click_at(left + menu.size[0] // 2, top + (top_row + bottom_row) // 2)
 
 class NotificationArea:
     \"\"\"Windows's.\"\"\"
@@ -217,7 +236,7 @@ class App(siphon_app.SiphonApp):
         win, player = self._window, self.player
         bar = win._now_playing
         art = bar._cover._art
-        self.other_side = (NotificationArea if platform == "windows" else Bar)(self)
+        self.other_side = {"windows": NotificationArea, "linux": Bar}.get(platform, XTray)(self)
         told = self.tray.quitting
 
         def quitting():  # first thing as Siphon quits: a Siphon started now must not hand this one its links
@@ -250,6 +269,13 @@ class App(siphon_app.SiphonApp):
 
         rests_and_comes_back(self.other_side.click, "icon clicked")
         rests_and_comes_back(lambda: self.other_side.choose(tray.SHOW), "Show Siphon")
+        if platform in ("xembed", "x11"):  # the X tray's left click hides a window in front, too
+            win.present()
+            active = run_until(win.is_active, 3)
+            self.other_side.click()
+            hidden = run_until(lambda: not win.get_visible(), 3)
+            self.other_side.click()
+            seen["toggle"] = {"active": active, "hidden": hidden, "shown": run_until(win.get_visible, 3)}
         seen["no yt-dlp"] = "yt_dlp" not in sys.modules  # nothing so far needed a link resolved
         seen["ctrl+q"] = self.get_accels_for_action("app.quit")
         if quit_by == "tray":
@@ -273,9 +299,11 @@ print(json.dumps(seen))
 
 
 @pytest.mark.linux
-@pytest.mark.parametrize("platform, quit_by", [("linux", "tray"), ("linux", "ctrl+q"), ("windows", "tray")])
-def test_a_window_closed_to_the_tray_rests_and_comes_back_live(display, bus, tmp_path, platform, quit_by):
-    """Linux's tray on the private bus, or Windows's simulated; quitting from the tray or with Ctrl+Q."""
+@pytest.mark.parametrize("platform, quit_by", [("linux", "tray"), ("linux", "ctrl+q"), ("windows", "tray"),
+                                               ("xembed", "tray"), ("x11", "ctrl+q")])
+def test_a_window_closed_to_the_tray_rests_and_comes_back_live(display, bus, tmp_path, platform, quit_by, request):
+    """Linux's tray on the private bus, an X tray (GTK on Broadway beside it, or on its X server), or Windows's
+    simulated; quitting from the tray or with Ctrl+Q."""
     if shutil.which("ffmpeg") is None:
         pytest.skip("needs ffmpeg to make a song")
     music = tmp_path / "music"
@@ -292,12 +320,25 @@ def test_a_window_closed_to_the_tray_rests_and_comes_back_live(display, bus, tmp
         env.pop(name, None)
     if platform == "windows":
         env["SIPHON_NO_MPRIS"] = "1"  # Windows has none
+    if platform in ("xembed", "x11"):
+        pytest.importorskip("Xlib")
+        env["DISPLAY"] = request.getfixturevalue("x_display")
+        if platform == "xembed":
+            env["SIPHON_XEMBED"] = "1"  # GTK on Broadway (Wayland alike): the X tray only when asked for
+        else:
+            env["GDK_BACKEND"] = "x11"  # GTK on the X server: its tray found by itself
+            env.pop("BROADWAY_DISPLAY")
     done = subprocess.run([sys.executable, "-c", _TRAY, str(ROOT), str(song), str(tmp_path / "cover.png"), platform,
                            quit_by], env=env, capture_output=True, text=True, timeout=120)
     assert done.returncode == 0, done.stderr
     seen = json.loads(done.stdout.splitlines()[-1])
     back = {"cached": True, "hidden": True, "cache while hidden": 0, "rested": True, "shown": True,
             "caught up": True, "live": True}
-    assert seen == {"tray": True, "tray told first": True, "playing": True, "icon clicked": back, "Show Siphon": back, "no yt-dlp": True,
-                    "ctrl+q": ["<Control>q"], "exit": 0, "quit in time": True, "mpv stopped": True,
-                    "threads left": [], "windows left": 0, "tray icon left": False}, done.stderr
+    expected = {"tray": True, "tray told first": True, "playing": True, "icon clicked": back, "Show Siphon": back,
+                "no yt-dlp": True, "ctrl+q": ["<Control>q"], "exit": 0, "quit in time": True, "mpv stopped": True,
+                "threads left": [], "windows left": 0, "tray icon left": False}
+    if platform == "x11":  # in front, the window hides; clicked again, it shows
+        expected["toggle"] = {"active": True, "hidden": True, "shown": True}
+    elif platform == "xembed":  # Broadway gives no window the focus: not in front, so the click only shows it
+        expected["toggle"] = {"active": False, "hidden": False, "shown": True}
+    assert seen == expected, done.stderr
