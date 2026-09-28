@@ -353,8 +353,9 @@ def test_the_tip_follows_the_song(icon):
 
 def test_the_balloon(icon):
     assert icon.tray.balloon("Siphon Is Still Running", "It keeps playing.")
-    pump(lambda: any(r.flags == wintray.NIF_INFO for r in icon.api.notify_calls()))
-    balloon = [r for r in icon.api.notify_calls() if r.flags == wintray.NIF_INFO][-1]
+    pump(lambda: any(r.flags & wintray.NIF_INFO for r in icon.api.notify_calls()))
+    balloon = [r for r in icon.api.notify_calls() if r.flags & wintray.NIF_INFO][-1]
+    assert balloon.flags == wintray.NIF_INFO | wintray.NIF_SHOWTIP  # the tip keeps working after it
     assert (balloon.message, balloon.title, balloon.info) == (wintray.NIM_MODIFY, "Siphon Is Still Running",
                                                               "It keeps playing.")
     assert (balloon.info_flags, balloon.balloon_icon) == (wintray.NIIF_USER | wintray.NIIF_LARGE_ICON, 0x1C20)

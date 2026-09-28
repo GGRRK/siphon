@@ -440,7 +440,8 @@ class NotifyIcon:
         with self._lock:
             if not self._added:
                 return
-            data = self._data(NIF_INFO)
+            # NIF_SHOWTIP with every change, as with the tip's own: without it, version 4 drops the standard tip
+            data = self._data(NIF_INFO | NIF_SHOWTIP)
             put(data.szInfoTitle, heading)
             put(data.szInfo, body)
             data.dwInfoFlags = NIIF_USER | (NIIF_LARGE_ICON if self._balloon_icon else 0)
