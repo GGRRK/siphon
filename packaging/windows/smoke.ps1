@@ -54,9 +54,11 @@ function Screenshot([string] $path) {
 }
 
 # The tray's hidden window (siphon/wintray.py), found by its class: a second start sends it its command line,
-# and this script sends it what the tray menu would.
+# and this script sends it what the tray menu would. FindWindowW's title is a pointer, passed as IntPtr.Zero (NULL:
+# any title): PowerShell hands a .NET string parameter "" for $null, and FindWindow would then look for a window
+# with an empty title, which the tray's ("Siphon Tray") is not.
 Add-Type -Namespace SiphonSmoke -Name Win32 -MemberDefinition @'
-[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, string title);
+[DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, IntPtr title);
 [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
 [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
 [DllImport("user32.dll")] public static extern IntPtr SendMessageTimeoutW(IntPtr hwnd, uint msg, IntPtr wParam,
@@ -66,7 +68,7 @@ $TrayClass = 'io.github.ggrrk.Siphon.Tray'
 $QuitCommand = 8  # the tray menu's Quit Siphon (siphon/tray.py)
 
 function Get-TrayWindow([Diagnostics.Process] $process) {
-    $hwnd = [SiphonSmoke.Win32]::FindWindowW($TrayClass, $null)
+    $hwnd = [SiphonSmoke.Win32]::FindWindowW($TrayClass, [IntPtr]::Zero)
     if ($hwnd -eq [IntPtr]::Zero) { throw 'Siphon has no tray window' }
     $owner = [uint32] 0
     [SiphonSmoke.Win32]::GetWindowThreadProcessId($hwnd, [ref] $owner) | Out-Null
@@ -89,7 +91,7 @@ function Stop-SiphonFromTray([Diagnostics.Process] $process) {
     $hwnd = Get-TrayWindow $process
     [SiphonSmoke.Win32]::PostMessageW($hwnd, 0x0111, [IntPtr] $QuitCommand, [IntPtr]::Zero) | Out-Null
     if (-not $process.WaitForExit(15000)) { $process.Kill(); throw 'Siphon did not quit from the tray menu' }
-    $left = [SiphonSmoke.Win32]::FindWindowW($TrayClass, $null)
+    $left = [SiphonSmoke.Win32]::FindWindowW($TrayClass, [IntPtr]::Zero)
     if ($left -ne [IntPtr]::Zero) { throw 'a tray window outlived Siphon' }
     Write-Host '  ok: Quit Siphon in the tray menu quit it'
 }
