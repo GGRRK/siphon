@@ -3,12 +3,14 @@
 GdkPixbuf decodes it: on Linux every format glycin reads (JPEG, PNG, WebP, GIF, BMP, TIFF, HEIC, AVIF, JPEG XL...),
 in the Windows build its own loaders (JPEG, PNG, GIF, BMP, TIFF, ICO, TGA, PNM). What GdkPixbuf can't read goes
 through ffmpeg, which Siphon needs anyway: WebP and HEIC on Windows (its build decodes no AVIF: no AV1 decoder).
+A picture of more than MAX_PIXELS is refused from its header, before anything decodes it.
 The picture is turned upright (EXIF orientation), cropped to a centred square like a downloaded playlist's
 picture, shrunk to at most SIZE pixels and saved afresh: a JPEG, or a PNG when parts of it are see-through (a
 GIF's or PNG's background). Saving afresh also leaves the photo's metadata, a camera's GPS position say, out of
 a folder other players and sync tools read.
 """
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -16,6 +18,12 @@ import gi
 
 gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import GdkPixbuf, GLib  # noqa: E402
+
+try:  # glycin, which GdkPixbuf reads through on Linux
+    gi.require_version("Gly", "2")
+    from gi.repository import Gly  # noqa: E402
+except (ImportError, ValueError):  # the Windows build (GdkPixbuf's own loaders), or an older Linux
+    Gly = None
 
 from . import paths  # noqa: E402
 
@@ -39,6 +47,7 @@ def square(source: Path | bytes) -> bytes:
     Blocking, 0.25 s for a 24 MP JPEG and 0.7 s for a 12 MP HEIC photo (measured 2026-09-28): the window calls it
     from a worker thread."""
     data = _read(source) if isinstance(source, Path) else source
+    _check_header(data)
     try:
         pixbuf = _decode(data)
     except GLib.Error:
@@ -62,6 +71,26 @@ def _read(file: Path) -> bytes:
         raise PictureError("Could not read that file.") from None
 
 
+def _check_header(data: bytes) -> None:
+    """PictureError when the image's header claims more than MAX_PIXELS. On Linux glycin reads it without decoding
+    (10-20 ms): GdkPixbuf's glycin module decodes the whole image whatever size-prepared asks for, so a 190 KB PNG
+    of 40000 x 40000 grew Siphon by 6.1 GB, and where that much memory was not to be had it ended Siphon ("memory
+    allocation of 4800000000 bytes failed", measured 2026-09-28). Elsewhere _decode refuses it at size-prepared."""
+    if Gly is None:
+        return
+    try:
+        image = Gly.Loader.new_for_bytes(GLib.Bytes.new(data)).load()
+    except GLib.Error:  # GdkPixbuf, then ffmpeg, say what is wrong with it
+        return
+    _refuse_over_max(image.get_width(), image.get_height())
+
+
+def _refuse_over_max(width: int, height: int) -> None:
+    if width * height > MAX_PIXELS:
+        raise PictureError(f"That picture is too large ({width} × {height}; "
+                           f"up to {MAX_PIXELS // 1_000_000} megapixels).")
+
+
 def _decode(data: bytes) -> GdkPixbuf.Pixbuf:
     """The image in data, upright, its short side at most SIZE. GLib.Error when GdkPixbuf can't read it."""
     loader = GdkPixbuf.PixbufLoader()
@@ -70,7 +99,7 @@ def _decode(data: bytes) -> GdkPixbuf.Pixbuf:
     def prepared(_loader: GdkPixbuf.PixbufLoader, width: int, height: int) -> None:
         found.append((width, height))
         if width * height > MAX_PIXELS:
-            loader.set_size(1, 1)  # not worth decoding: refused below
+            loader.set_size(0, 0)  # GdkPixbuf's own loaders (the Windows build's) then stop before they allocate it
             return
         # Asked for at the size it is kept at: the Windows build's JPEG loader then decodes at a fraction of it.
         # glycin (Linux) decodes whole and shrinks after: a 24 MP photo takes 110 MB for a moment (measured 2026-09-28).
@@ -79,13 +108,16 @@ def _decode(data: bytes) -> GdkPixbuf.Pixbuf:
 
     loader.connect("size-prepared", prepared)
     try:
-        loader.write(data)
-    finally:
-        loader.close()  # raises too, for data it could make no image of
-    width, height = found[0] if found else (0, 0)
-    if width * height > MAX_PIXELS:
-        raise PictureError(f"That picture is too large ({width} × {height}; "
-                           f"up to {MAX_PIXELS // 1_000_000} megapixels).")
+        try:
+            loader.write(data)
+        finally:
+            loader.close()  # raises too, for data it could make no image of
+    except GLib.Error:
+        if found:
+            _refuse_over_max(*found[0])  # the loader stopped at size 0
+        raise
+    if found:
+        _refuse_over_max(*found[0])
     pixbuf = loader.get_pixbuf()
     if pixbuf is None:
         raise GLib.Error("no image")
@@ -102,8 +134,10 @@ def _ffmpeg(file: Path) -> bytes:
     except (OSError, subprocess.TimeoutExpired):  # no ffmpeg, or a file it chews on for ever
         raise PictureError(UNREADABLE) from None
     if done.returncode != 0 or not done.stdout:
-        if b"exceeds specified max pixel count" in done.stderr:
-            raise PictureError(f"That picture is too large (up to {MAX_PIXELS // 1_000_000} megapixels).")
+        # "Picture size 9000x9000 exceeds specified max pixel count", or "Picture size 20000x20000 is invalid" for
+        # one of 2 GB or more, which ffmpeg refuses before -max_pixels.
+        if size := re.search(rb"Picture size (\d+)x(\d+)", done.stderr):
+            _refuse_over_max(int(size[1]), int(size[2]))
         raise PictureError(UNREADABLE)
     return done.stdout
 

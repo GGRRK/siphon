@@ -6,8 +6,10 @@ square red at the top left, green elsewhere. turned.jpg stores it turned a quart
 that turns it back."""
 
 import json
+import struct
 import subprocess
 import sys
+import zlib
 from pathlib import Path
 
 import pytest
@@ -163,9 +165,45 @@ def test_too_many_pixels_are_refused_without_decoding_them_all(monkeypatch):
         picture.square(PICTURES / "scene.png")
 
 
+_BOMB = """
+import sys
+sys.path.insert(0, sys.argv[1])
+if sys.platform != "win32":  # a computer without the 4.8 GB the bomb takes decoded
+    import resource
+    resource.setrlimit(resource.RLIMIT_AS, (3 << 30, 3 << 30))
+from pathlib import Path
+from siphon import picture
+try:
+    picture.square(Path(sys.argv[2]))
+except picture.PictureError as error:
+    print(error)
+print(len(picture.square(Path(sys.argv[3]))) > 0)  # and a picture still decodes within those 3 GB
+"""
+
+
+def test_a_picture_bomb_is_refused_from_its_header_before_it_is_decoded(tmp_path):
+    """A 190 KB PNG of 40000 x 40000 (1.6 gigapixels of one colour): GdkPixbuf's glycin module (Linux) decoded all of
+    it before size-prepared could refuse it, and with 3 GB to use Siphon ended ("memory allocation of 4800000000
+    bytes failed"). On Windows only the refusal is checked: its GdkPixbuf loaders stop at size 0."""
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    side, packer = 40000, zlib.compressobj(9)
+    rows = (b"\0" * (1 + side // 8)) * 1000  # a filter byte and 5000 bytes of black, 1 bit a pixel
+    idat = b"".join(packer.compress(rows) for _ in range(side // 1000)) + packer.flush()
+    bomb = tmp_path / "bomb.png"
+    bomb.write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", side, side, 1, 0, 0, 0, 0))
+                     + chunk(b"IDAT", idat) + chunk(b"IEND", b""))
+    done = subprocess.run([sys.executable, "-c", _BOMB, str(ROOT), str(bomb), str(PICTURES / "scene.jpg")],
+                          capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.splitlines() == ["That picture is too large (40000 × 40000; up to 64 megapixels).", "True"]
+
+
 def test_ffmpeg_refuses_too_many_pixels_too(monkeypatch, without_gdkpixbuf_loaders):
     monkeypatch.setattr(picture, "MAX_PIXELS", 2000)
-    with pytest.raises(PictureError, match=r"That picture is too large \(up to "):
+    monkeypatch.setattr(picture, "_check_header", lambda _data: None)  # as without glycin
+    with pytest.raises(PictureError, match=r"That picture is too large \(60 × 40; up to "):
         picture.square(PICTURES / "scene.webp")
 
 
