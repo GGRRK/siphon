@@ -3,7 +3,7 @@ its list, so formats can be compared before one is chosen."""
 
 from types import ModuleType
 
-from gi.repository import Adw, GObject, Gtk
+from gi.repository import Adw, Gtk
 
 
 def spoken(core: ModuleType, fmt: str) -> str:
@@ -13,7 +13,7 @@ def spoken(core: ModuleType, fmt: str) -> str:
 
 class QualityMeter(Gtk.Box):
     """How close a format keeps the site's own sound: blocks filled and coloured by it (style.css), and its word, so
-    it reads without the colours."""
+    it reads without the colours: at every width, the row of the narrowest window included."""
 
     def __init__(self, blocks: int) -> None:
         super().__init__(spacing=6, valign=Gtk.Align.CENTER)
@@ -32,7 +32,6 @@ class QualityMeter(Gtk.Box):
         self.add_css_class(f"level-{level}")
         self.bar.set_value(level)
         self.word.set_label(word)
-        self.set_tooltip_text(f"{word} sound")  # on the row of a narrow window the word itself is hidden
         self.bar.update_property([Gtk.AccessibleProperty.LABEL, Gtk.AccessibleProperty.VALUE_TEXT],
                                  ["Sound quality", word])
 
@@ -69,10 +68,6 @@ class FormatRow(Adw.ComboRow):
     """The chosen format and its meter on the row, its note as the subtitle; the list shows each format's meter and
     note under its name."""
 
-    # A narrow window: the row's meter without its word, so the note beside it keeps some width (360 px: three
-    # lines, not four). The blocks, the tooltip, the list and screen readers still give the word.
-    narrow = GObject.Property(type=bool, default=False)
-
     def __init__(self, core: ModuleType, fmt: str) -> None:
         self.core = core
         self._formats = {core.FORMAT_LABELS[f]: f for f in core.FORMATS}  # the model's strings are the labels
@@ -89,7 +84,10 @@ class FormatRow(Adw.ComboRow):
 
     def _describe(self) -> None:
         self.set_subtitle(self.core.FORMAT_NOTES[self.format])
-        # After the subtitle, which the row also gives screen readers as its description: the meter's word first.
+        # The row describes itself by its subtitle (described-by), and over AT-SPI that relation hides a description
+        # of its own (measured, GTK 4.22: "Format, MP3" and an empty description). Without it screen readers get
+        # the meter's word, then the note.
+        self.reset_relation(Gtk.AccessibleRelation.DESCRIBED_BY)
         self.update_property([Gtk.AccessibleProperty.DESCRIPTION], [spoken(self.core, self.format)])
 
     def _factory(self, listed: bool) -> Gtk.SignalListItemFactory:
@@ -103,11 +101,7 @@ class FormatRow(Adw.ComboRow):
         item.set_child(FormatView(self.core.QUALITY_BLOCKS, item))
 
     def _setup_chosen(self, _factory: Gtk.SignalListItemFactory, item: Gtk.ListItem) -> None:
-        view = FormatView(self.core.QUALITY_BLOCKS)
-        # a binding, not a list of views: the row sets up a new one for every choice (measured: 50 in 50 choices)
-        self.bind_property("narrow", view.meter.word, "visible",
-                           GObject.BindingFlags.SYNC_CREATE | GObject.BindingFlags.INVERT_BOOLEAN)
-        item.set_child(view)
+        item.set_child(FormatView(self.core.QUALITY_BLOCKS))
 
     def _bind(self, _factory: Gtk.SignalListItemFactory, item: Gtk.ListItem) -> None:
         label = item.get_item().get_string()

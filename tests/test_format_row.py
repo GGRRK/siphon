@@ -18,8 +18,8 @@ STYLE_CSS = ROOT / "siphon" / "ui" / "style.css"
 
 
 def test_screen_readers_hear_the_sound_then_the_note():
-    assert spoken(core, "flac") == "Best sound. Sounds like Original, no better, in files 10-14 times bigger."
-    assert spoken(core, "opus") == "Excellent sound. YouTube's own sound, untouched; small files; not for Apple Music."
+    assert spoken(core, "flac") == "Best sound. Sounds like Original, no better, in files often 10 times bigger."
+    assert spoken(core, "opus") == "Excellent sound. As YouTube sends it, converted from others; not for Apple Music."
 
 
 def test_every_level_has_its_colour_in_the_stylesheet():
@@ -82,20 +82,25 @@ seen["heard"] = heard[:]
 seen["scrolls"] = walk(popover, Gtk.ScrolledWindow)[0].get_vadjustment().get_upper() > \\
     walk(popover, Gtk.ScrolledWindow)[0].get_vadjustment().get_page_size() + 0.5
 popover.popdown()
-row.props.narrow = True
-chosen = [v for v in walk(row, FormatView) if v.get_ancestor(Gtk.Popover) is None][0]
-seen["narrow"] = {"word": chosen.meter.word.get_visible(), "tooltip": chosen.meter.get_tooltip_text(),
-                  "listed words": [v.meter.word.get_visible() for v in views]}
-for _round in range(10):  # chosen again and again while narrow: each view the row shows keeps the word hidden
+for _round in range(10):  # chosen again and again
     for n in range(len(core.FORMATS)):
         row.set_selected(n)
         run_until(lambda: row.get_subtitle() == core.FORMAT_NOTES[core.FORMATS[n]])
-shown = [v for v in walk(row, FormatView) if v.get_ancestor(Gtk.Popover) is None and v.get_mapped()]
-seen["narrow after choosing"] = [v.meter.word.get_visible() for v in shown]
 gc.collect()
 seen["row views"] = sum(1 for view in made if view() is not None)  # left alive: not one more with every choice
-row.props.narrow = False
-seen["wide again"] = [v.meter.word.get_visible() for v in shown]
+# what screen readers get for the row: its own description (the meter's word, then the note), not its subtitle's
+seen["described"] = {"by subtitle": Gtk.test_accessible_has_relation(row, Gtk.AccessibleRelation.DESCRIBED_BY),
+                     "own": Gtk.test_accessible_has_property(row, Gtk.AccessibleProperty.DESCRIPTION)}
+narrow = Gtk.ListBox(css_classes=["boxed-list"], margin_start=12, margin_end=12)
+narrow_row = FormatRow(core, "m4a")  # the widest name and word beside the note
+narrow.append(narrow_row)
+narrow_window = Gtk.Window(child=narrow, default_width=360)  # the window's narrowest
+narrow_window.present()
+run_until(lambda: narrow_row.get_mapped() and any(v.get_width() for v in walk(narrow_row, FormatView)))
+chosen = [v for v in walk(narrow_row, FormatView) if v.get_mapped()][0]
+seen["narrowest"] = {"word": chosen.meter.word.get_mapped() and chosen.meter.word.get_label(),
+                     "cut": [label.get_label() for label in walk(narrow_row, Gtk.Label) if label.get_mapped()
+                             and label.get_layout().is_ellipsized()]}
 row.set_selected(core.FORMATS.index("flac"))
 run_until(lambda: row.get_subtitle() == core.FORMAT_NOTES["flac"])
 seen["after choosing flac"] = {"format": row.format, "subtitle": row.get_subtitle(),
@@ -107,8 +112,9 @@ print(json.dumps(seen))
 
 
 def test_the_row_and_its_list_show_every_formats_sound_and_note(display):  # noqa: F811
-    done = subprocess.run([sys.executable, "-c", _ROW, str(ROOT)], env=display, capture_output=True, text=True,
-                          timeout=60)
+    # GTK's test accessibility backend: it keeps what the row tells screen readers, on no bus (GTK_A11Y=none keeps none)
+    done = subprocess.run([sys.executable, "-c", _ROW, str(ROOT)], env={**display, "GTK_A11Y": "test"},
+                          capture_output=True, text=True, timeout=60)
     assert done.returncode == 0, done.stderr
     seen = json.loads(done.stdout.splitlines()[-1])
     assert seen["shown"] and seen["opened"]
@@ -122,9 +128,10 @@ def test_the_row_and_its_list_show_every_formats_sound_and_note(display):  # noq
          "note": core.FORMAT_NOTES[fmt], "check": 1.0 if fmt == "mp3" else 0.0} for fmt in core.FORMATS]
     assert seen["heard"] == [[core.FORMAT_LABELS[fmt], spoken(core, fmt)] for fmt in core.FORMATS]
     assert not seen["scrolls"]  # all five compare at a glance
-    # a narrow window: the row's meter keeps its blocks and tooltip, not its word; the list keeps every word
-    assert seen["narrow"] == {"word": False, "tooltip": "Excellent sound", "listed words": [True] * len(core.FORMATS)}
-    assert seen["narrow after choosing"] == [False] and seen["wide again"] == [True] and seen["row views"] <= 2
+    assert seen["row views"] <= 2
+    assert seen["described"] == {"by subtitle": False, "own": True}
+    # the narrowest window: the row's meter keeps its word (not colours alone), and the note wraps, never cut
+    assert seen["narrowest"] == {"word": "Excellent", "cut": []}
     after = seen["after choosing flac"]
     assert after["format"] == "flac" and after["subtitle"] == core.FORMAT_NOTES["flac"]
     assert [(v["name"], v["blocks"], v["word"]) for v in after["on the row"]] == [("FLAC", 4, "Best")]

@@ -99,9 +99,6 @@ class DownloadPage(Gtk.Box):
     def focus_entry(self) -> None:
         self._entry.grab_focus()
 
-    def set_narrow(self, narrow: bool) -> None:
-        self._format_row.props.narrow = narrow
-
     # -- queue
 
     def queue_links(self, links: list[str]) -> list[str]:

@@ -63,17 +63,19 @@ FORMAT_LABELS = {
     "best": "Original",
 }
 # What each format gets you, for the Format row, its list and `siphon get --help`: true whichever site a song comes
-# from. Measured 2026-09-28 on 3 YouTube videos, a Spotify song (found on YouTube) and a SoundCloud song: YouTube
-# sends Opus at 127-133 kbps (0.97-1.0 MB a minute) and AAC, the M4A kind, at 130-134 kbps (0.98-1.0 MB);
-# SoundCloud sends AAC at 160 kbps (1.26 MB) and no Opus. A format the site sends is kept as it is (yt-dlp copies
-# it), any other is converted: Opus from SoundCloud at 160 kbps (1.29 MB), MP3 at 244-272 kbps (1.83-2.04 MB, up
-# to twice Original), FLAC 24-bit at 1.6-1.8 Mbps (12.0-13.4 MB, 10-14 times Original). FLAC is lossless, so its
-# samples are Original's to -135 dB, bar the peaks a lossy decoder puts above full scale (0.05% of one song's).
+# from. Measured 2026-09-28 on 6 YouTube videos, 2 Spotify songs (found on YouTube) and 2 SoundCloud songs: YouTube
+# sends Opus at 125-161 kbps (0.94-1.2 MB a minute) and AAC, the M4A kind, at 129-134 kbps (0.97-1.0 MB);
+# SoundCloud sends AAC at 160 kbps (1.22-1.26 MB) and no Opus. A format the site sends is kept as it is (yt-dlp
+# copies it), any other is converted: Opus from SoundCloud at 160 kbps (1.29-1.3 MB), MP3 at 213-274 kbps (1.59-2.06
+# MB, 1.3-2.1 times Original: a quiet piano piece least, a metal song most), FLAC 24-bit at 1.0-1.8 Mbps (7.7-13.8 MB,
+# 6.4-14.7 times Original, the same two ends). So sizes are "often", not a range every song keeps. FLAC is lossless,
+# so its samples are Original's to -135 dB, bar the peaks a lossy decoder puts above full scale (up to 0.13% of one
+# song's). Once in 9 Opus downloads from YouTube, YouTube offered that request only a video's AAC: it was converted.
 FORMAT_NOTES = {
-    "opus": "YouTube's own sound, untouched; small files; not for Apple Music",
+    "opus": "As YouTube sends it, converted from others; not for Apple Music",
     "m4a": "Small files that play almost anywhere, Apple Music included",
-    "mp3": "Plays on anything, even old car stereos; files up to twice as big",
-    "flac": "Sounds like Original, no better, in files 10-14 times bigger",
+    "mp3": "Plays on anything, even old car stereos; files often twice as big",
+    "flac": "Sounds like Original, no better, in files often 10 times bigger",
     "best": "Exactly what the site sends; the file type depends on the site",
 }
 # The quality meter: how close a format's sound is to the site's own, in blocks out of QUALITY_BLOCKS, and its word;

@@ -84,7 +84,9 @@ def test_only_the_formats_that_keep_the_sites_own_sound_from_every_site_are_rate
 @pytest.mark.parametrize("fmt", core.FORMATS)
 def test_notes_are_short_plain_words(fmt):
     note = core.FORMAT_NOTES[fmt]
-    assert len(note) <= 66  # one line under "Format" at the window's default width
+    # one line beside the chosen format's name and meter at the window's default width (measured, 820 px: every note
+    # one line; a 66-character one wrapped beside Opus's)
+    assert len(note) <= 65
     assert note.isascii() and not note.endswith(".")  # the terminal's help on Windows; a sentence gets its full stop
     assert not re.search(r"codec|container|bitrate|kbps|vbr|re-?encode|lossless|lossy|transcod", note, re.IGNORECASE)
 

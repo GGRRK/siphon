@@ -172,7 +172,6 @@ class SiphonWindow(Adw.ApplicationWindow):
     def _set_narrow(self, narrow: bool) -> None:
         self._header.set_title_widget(None if narrow else self._switcher)
         self._now_playing.set_narrow(narrow)
-        self.downloads.set_narrow(narrow)
 
     def _on_focus_entry(self, *_args) -> None:
         self.show_page("download")
