@@ -109,6 +109,7 @@ jobs:
           Get-ChildItem build\Siphon-* | ForEach-Object { "{0}  {1:N1} MB" -f $_.Name, ($_.Length / 1MB) }
 
       - name: Smoke test without MSYS2
+        timeout-minutes: 20  # about 3 when it passes; a hang (a download, an installer) ends here, not at the job's 60
         shell: pwsh
         run: |
           Remove-Item Env:MSYSTEM  # MSYS2's Python would use / as the path separator with it set
