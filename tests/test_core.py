@@ -94,6 +94,7 @@ def test_download_honours_a_cancel_set_before_it_starts(tmp_path):
     ("ERROR: [youtube] abc: Requested format is not available", "try Update engine"),
     ("ERROR: [youtube] abc: Private video. Sign in", "private"),
     ("ERROR: [youtube] abc: Video unavailable", "isn't available"),
+    ("ERROR: [soundcloud] 1: This video is not available from your location due to geo restriction", "your country"),
     ("ERROR: [generic] x: Unable to download webpage: HTTP Error 404: Not Found", "doesn't exist"),
     ("ERROR: [generic] x: Unable to download webpage: <urlopen error timed out>", "Network problem"),
     ("ERROR: Unsupported URL: https://example.com/", "can't find any audio"),

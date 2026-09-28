@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .core import (FORMATS, Progress, Resolved, SiphonError, cover_image, default_outdir, download, resolve,
+from .core import (FORMATS, Progress, Resolved, SiphonError, cover_image, default_outdir, download, label, resolve,
                    source_link)
 from .library import PLAYLISTS_DIR
 from .playlists import LinkedPlaylist, Playlists
@@ -74,7 +74,7 @@ def main(argv: list[str]) -> int:
             target = outdir  # no per-link subfolders, like the window
             linked = _link(found, url, target) if found.kind == "playlist" else None
             for n, track in enumerate(found.tracks, 1):
-                name = f"{track.artist} - {track.title}" if track.artist else track.title
+                name = label(track)
                 line = _Line(f"[{n}/{len(found.tracks)}] {name}" if found.folder else name)
                 try:
                     path = download(track, target, args.format, line.update)

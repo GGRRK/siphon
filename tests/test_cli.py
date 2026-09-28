@@ -83,3 +83,15 @@ def test_an_unwritable_playlist_folder_does_not_stop_the_downloads(engine, tmp_p
     captured = capsys.readouterr()
     assert "Couldn't save the playlist" in captured.err
     assert (tmp_path / "Band - Three.opus").exists()
+
+
+def test_a_song_listed_without_a_name_shows_its_link(engine, tmp_path, monkeypatch, capsys):
+    def resolve(url: str) -> Resolved:
+        tracks = [Track(url="https://soundcloud.com/band/gone", title="", error="This song is private or was deleted "
+                                                                                "from SoundCloud.")]
+        return Resolved(title="Set", kind="album", tracks=tracks, folder="Set")
+
+    monkeypatch.setattr(cli, "resolve", resolve)
+    monkeypatch.setattr(cli, "download", lambda track, *args: (_ for _ in ()).throw(SiphonError(track.error)))
+    assert cli.main(["https://soundcloud.com/band/sets/set", "-o", str(tmp_path)]) == 1
+    assert "[1/1] https://soundcloud.com/band/gone  failed: This song is private" in capsys.readouterr().out

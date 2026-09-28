@@ -23,6 +23,11 @@ _SEPARATOR = re.compile(r"\s+[-–—]\s+")
 _VERSIONS = re.compile(
     r"\b(live|cover|remix|sped[\s-]*up|slowed|8d|karaoke|instrumental|nightcore)\b", re.I
 )
+# "(Re-Mastered)", "(2022 Remaster)", " - Remastered 2009": the same recording, a note store and SoundCloud titles
+# carry and most uploads leave out; it is not asked of an upload (one that has it still scores a little lower).
+_REMASTER = re.compile(
+    r"\s*(?:[(\[][^)\]]*\bre-?master(?:ed)?\b[^)\]]*[)\]]|\s[-–—]\s[^-–—]*\bre-?master(?:ed)?\b[^-–—]*$)", re.I
+)
 _NOISE = {
     "the", "a", "an", "and", "feat", "ft", "featuring", "with", "x", "official", "video",
     "audio", "lyrics", "lyric", "topic", "vevo", "hd", "music", "prod", "by",
@@ -100,7 +105,7 @@ class Candidate:
 
 def score(c: Candidate, title: str, artist: str, duration: float | None) -> float | None:
     """How likely c is the recording (title, artist, duration); None when it clearly isn't."""
-    want_title, want_artist = tokens(title), tokens(artist) if artist else set()
+    want_title, want_artist = tokens(_REMASTER.sub("", title) or title), tokens(artist) if artist else set()
     text = tokens(clean_title(c.title))
     title_sim = len(want_title & text) / len(want_title) if want_title else 0.0
     if title_sim < 0.5:

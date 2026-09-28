@@ -42,6 +42,7 @@ class Track:
     query: str = ""
     index: int | None = None
     track_no: int | None = None
+    error: str = ""
 
 
 @dataclass
@@ -133,6 +134,8 @@ def _wait(seconds: float, cancel: threading.Event | None) -> None:
 def download(track: Track, outdir: Path, fmt: str, progress: Callable[[Progress], None] | None = None,
              cancel: threading.Event | None = None) -> Path:
     report = progress or (lambda p: None)
+    if track.error:
+        raise SiphonError(track.error)
     ext = "opus" if fmt == "best" else fmt
     target = Path(outdir) / f"{track.artist} - {track.title}.{ext}".replace("/", "_")
     if target.exists():
