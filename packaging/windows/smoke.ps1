@@ -23,6 +23,17 @@ function Check([string] $name, [scriptblock] $body) {
     Write-Host "`n=== $name"
     try { & $body; Write-Host "PASS $name" }
     catch { Write-Host "FAIL $name - $($_.Exception.Message)"; $failed.Add($name) }
+    finally { Stop-Leftovers }
+}
+
+function Stop-Leftovers {
+    # One Siphon per session: a Siphon (or an update's installer) that a failed check left running would take the
+    # next check's start over, failing every check after it. Each check starts from none.
+    $left = @(Get-Process Siphon, 'Siphon-99.0.0-Setup*' -ErrorAction SilentlyContinue)
+    if (-not $left.Count) { return }
+    Write-Host "  stopping what this check left running: $(($left | ForEach-Object { "$($_.ProcessName) $($_.Id)" }) -join ', ')"
+    $left | Stop-Process -Force -ErrorAction SilentlyContinue
+    $left | ForEach-Object { $_.WaitForExit(10000) | Out-Null }
 }
 
 function Run([string] $exe, [string[]] $arguments) {
