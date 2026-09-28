@@ -10,6 +10,7 @@ from pathlib import Path, PureWindowsPath
 from types import SimpleNamespace
 
 import pytest
+from fake_ytdlp import FakeYdl, fetch, song_page  # imports yt-dlp while this is still Linux
 from gi.repository import GLib
 
 import siphon
@@ -220,6 +221,35 @@ def test_windows_long_folders_shorten_the_file_name(win):
 @pytest.mark.linux
 def test_linux_long_folders_keep_the_name():
     assert core._fit("s" * 175, Path("/" + "d" * 4000)) == "s" * 175
+
+
+@pytest.fixture
+def unnamed_download(monkeypatch):
+    """core.download of a song its list did not name (a SoundCloud set's), its page answered offline."""
+
+    def download(title: str, outdir: Path, uploader: str = "The Royal Concept") -> Path:
+        url = f"https://soundcloud.com/band/{len(title)}"
+        monkeypatch.setattr(core, "_ydl", FakeYdl(pages={url: song_page("9", title, uploader, webpage_url=url)}))
+        return core.download(Track(url=url, title="", source="SoundCloud"), outdir, "opus")
+
+    monkeypatch.setattr(core, "_fetch", fetch)
+    monkeypatch.setattr(core, "_cover", lambda urls, work: None)
+    monkeypatch.setattr(core, "_tag", lambda *args: None)
+    return download
+
+
+def test_windows_names_a_listed_song_from_its_page_with_windows_characters(win, unnamed_download, tmp_path):
+    path = unnamed_download('Intro: "Live"?', tmp_path, uploader="AC/DC")
+    assert path.name == "AC-DC - Intro - 'Live'.opus"
+    assert unnamed_download("CON", tmp_path, uploader="").name == "_CON.opus"
+
+
+def test_windows_fits_a_listed_songs_name_under_max_path(win, unnamed_download, tmp_path):
+    outdir = tmp_path / ("d" * (200 - len(str(tmp_path)) - 1))
+    path = unnamed_download("A song with a very long title, " * 4 + "the end", outdir)
+    assert len(str(outdir)) == 200 and len(str(path)) <= names.MAX_PATH
+    assert path.stem == names.shorten(f"The Royal Concept - {'A song with a very long title, ' * 4}the end",
+                                      names.MAX_PATH - 200 - 1 - len(".flac"))
 
 
 # ---------------------------------------------------------------- JavaScript runtime

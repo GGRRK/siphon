@@ -9,6 +9,7 @@ engine's wheel, for which Python keeps no bytecode (measured 2026-09-26, Python 
 """
 
 import base64
+import hashlib
 import importlib.machinery
 import importlib.util
 import os
@@ -23,7 +24,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, replace
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -76,6 +78,9 @@ class Track:
     query: str = ""
     index: int | None = None
     track_no: int | None = None
+    # Why this song can't be downloaded, when the list it came from already says so (a private or deleted song
+    # of a SoundCloud set); download() fails with it at once. "" for every song that may download.
+    error: str = ""
 
 
 @dataclass
@@ -253,6 +258,7 @@ _EXPLANATIONS = (
     (("sign in to confirm", "not a bot"),
      "YouTube asked for a sign-in to prove this isn't a bot - try again later."),
     (("private video",), "This video is private."),
+    (("geo restriction", "from your location", "in your country"), "This isn't available in your country."),
     (("drm",), "That site locks its audio with DRM, so Siphon can't download it."),
     (("unsupported url",), "Siphon can't find any audio at this link."),
     (("age-restricted", "confirm your age", "age restricted"),
@@ -385,25 +391,30 @@ def _resolve_ytdlp(url: str) -> Resolved:
     try:
         with _ydl(opts) as ydl:
             info = ydl.extract_info(url, download=False)
+            entries = info.get("entries") if info else None
+            if entries is not None:
+                entries = [e for e in entries if e and e.get("ie_key") != "YoutubeTab"]
+                hidden = sum(e.get("title") in _HIDDEN_VIDEOS for e in entries)
+                entries = _complete([e for e in entries if e.get("title") not in _HIDDEN_VIDEOS], ydl)
     except DownloadError as e:
         reason = explain(str(e))
+        if "drm" in str(e).lower() and not _is_youtube(url):
+            return _resolve_locked(url, reason)
         if "unsupported url" in str(e).lower() or "drm" in str(e).lower():
             return _resolve_page(url, reason)
         raise SiphonError(reason) from None
     if not info:
         raise SiphonError("Siphon can't find any audio at this link.")
 
-    entries = info.get("entries")
     if entries is None:
         track = _track_from_info(info)
-        return Resolved(title=_label(track), kind="track", tracks=[track], folder=None)
+        return Resolved(title=label(track), kind="track", tracks=[track], folder=None)
 
-    tracks = [
-        _track_from_info(e, index=i)
-        for i, e in enumerate(list(entries))
-        if e and e.get("title") not in ("[Private video]", "[Deleted video]")
-        and e.get("ie_key") != "YoutubeTab"
-    ]
+    tracks = []
+    for entry, error in entries:
+        track = _track_from_info(entry)
+        track.error = error
+        tracks.append(track)
     tracks = [t for t in tracks if t.url]
     if not tracks:
         raise SiphonError("Siphon found no tracks at this link - is the playlist private?")
@@ -411,14 +422,106 @@ def _resolve_ytdlp(url: str) -> Resolved:
         t.index = i
     title = info.get("title") or "Playlist"
     kind = "album" if "album" in (info.get("extractor_key") or "").lower() else "playlist"
-    if kind == "album":
+    # A SoundCloud set that is an album or EP stays a playlist (its link makes one) but its songs are numbered.
+    if kind == "album" or info.get("album_type") in _ALBUM_TYPES:
         for n, t in enumerate(tracks, 1):
             t.album, t.track_no = t.album or title, t.track_no or n
     # YouTube gives a playlist's own square picture (measured 2026-09-26: 240, 480 and 720 px); a playlist
     # without one takes its first video's picture.
     covers = _thumbnails(info)
-    return Resolved(title=title, kind=kind, tracks=tracks, folder=safe_name(title),
+    note = f"{hidden} private or deleted video{'s' if hidden != 1 else ''} left out." if hidden else ""
+    return Resolved(title=title, kind=kind, tracks=tracks, folder=safe_name(title), note=note,
                     cover_url=covers[0] if covers else _video_picture(tracks[0]))
+
+
+_HIDDEN_VIDEOS = ("[Private video]", "[Deleted video]")  # what a flat YouTube playlist lists them as
+_ALBUM_TYPES = ("album", "ep", "single", "compilation")  # SoundCloud's set types, as yt-dlp passes them on
+
+
+# ---------------------------------------------------------------- the songs of a list
+
+# A list read flat names its songs only as far as the site's list page does. SoundCloud sets name none of them: each
+# entry is a link (some only https://api-v2.soundcloud.com/tracks/<id>) with neither title nor artist, and SoundCloud
+# user pages leave out the artist. Such songs are read in full before the list is shown, so each is listed, named
+# and tagged as its own link would be - and, in download(), never taken for another song's file.
+GONE = "This song is private or was deleted from SoundCloud."
+_BATCH = 50  # songs per SoundCloud api-v2 tracks request: its limit
+_READERS = 8  # songs read at once, one request each, where a site has no batch request
+
+
+def _unnamed(entry: dict) -> bool:
+    title, artist = match.describe(entry)
+    return not (title and artist)
+
+
+def _complete(entries: list[dict], ydl: "yt_dlp.YoutubeDL") -> list[tuple[dict, str]]:
+    """Each entry of a flat list, in the list's order, with (where the list left the name out) the song's own
+    metadata, and "" or why the song can't be downloaded. SoundCloud songs are read in batches; any other song
+    without a title is read by itself, _READERS at a time; a song that still can't be read keeps its entry and
+    download() reads it again, then says what is wrong."""
+    done = [(entry, "") for entry in entries]
+    soundcloud = [i for i, e in enumerate(entries) if e.get("ie_key") == "Soundcloud" and e.get("id") and _unnamed(e)]
+    if soundcloud:
+        try:
+            found = _soundcloud_tracks(ydl, [str(entries[i]["id"]) for i in soundcloud])
+        except Exception:  # SoundCloud's answer or yt-dlp's insides changed, or the network: one by one below
+            found = None
+        if found is not None:
+            for i in soundcloud:
+                song = found.get(str(entries[i]["id"]))
+                done[i] = (_transparent(entries[i], song), "") if song else (entries[i], GONE)
+    untitled = [i for i, (entry, error) in enumerate(done) if not error and not match.describe(entry)[0]]
+    if untitled:
+        with ThreadPoolExecutor(min(_READERS, len(untitled)), thread_name_prefix="siphon-read") as pool:
+            read = list(pool.map(_read_one, [entries[i] for i in untitled]))
+        for i, song in zip(untitled, read):
+            if song:
+                done[i] = (_transparent(entries[i], song), "")
+    return done
+
+
+def _transparent(entry: dict, song: dict) -> dict:
+    """A song's own metadata, with what only its list entry knows (a set's album) added: the song names itself as
+    its own link does, whatever title the list gave it."""
+    listed = {k: v for k, v in entry.items() if k not in ("_type", "url", "ie_key")}
+    return {**listed, **{k: v for k, v in song.items() if v is not None}}
+
+
+def _read_one(entry: dict) -> dict | None:
+    """One song's metadata, read from its own page; None when that fails (download() then says why)."""
+    try:
+        with _ydl({}) as ydl:  # one per song: yt-dlp objects are not shared between threads
+            return ydl.extract_info(entry["url"], download=False, process=False)
+    except Exception:
+        return None
+
+
+def _soundcloud_tracks(ydl: "yt_dlp.YoutubeDL", ids: list[str]) -> dict[str, dict]:
+    """id -> the song's metadata, the fields a SoundCloud song's own link gives, for those of ids SoundCloud shares:
+    a private or deleted song is left out. One api-v2 request per _BATCH songs, through yt-dlp's SoundCloud client
+    (its client id, fetched again when SoundCloud turns it down): 6 songs in 0.12 s (measured 2026-09-28)."""
+    ie = ydl.get_info_extractor("Soundcloud")
+    ie.initialize()
+    found = {}
+    for start in range(0, len(ids), _BATCH):
+        songs = ie._call_api(ie._API_V2_BASE + "tracks", None, "Downloading tracks",
+                             query={"ids": ",".join(ids[start:start + _BATCH])}, headers=ie._HEADERS)
+        if not isinstance(songs, list):  # not the answer this reads: read the songs one by one instead
+            raise SiphonError("SoundCloud answered the tracks request in an unknown form.")
+        for song in songs:
+            if not isinstance(song, dict) or not song.get("id"):
+                continue
+            # yt-dlp checks each song's full-size artwork with a request of its own (0.1 s a song, measured
+            # 2026-09-28), so the list takes the 500 px one, which is always there; the download reads the full size.
+            # A song blocked in this country (policy BLOCK) is still named; its download says why it fails.
+            user = song.get("user") if isinstance(song.get("user"), dict) else {}
+            art = song.get("artwork_url") or user.get("avatar_url") or ""
+            info = ie._extract_info_dict({**song, "policy": None, "artwork_url": None,
+                                          "user": {**user, "avatar_url": None}}, extract_flat=True)
+            found[str(song["id"])] = {
+                **info, "extractor_key": "Soundcloud", "ie_key": "Soundcloud",
+                "thumbnail": re.sub(r"-[0-9a-z]+\.(jpg|png)$", "-t500x500.jpg", art) if art else None}
+    return found
 
 
 def _video_picture(track: Track) -> str:
@@ -430,6 +533,31 @@ def _video_picture(track: Track) -> str:
     return track.cover_url
 
 
+def _resolve_locked(url: str, reason: str) -> Resolved:
+    """A song whose site locks its audio with DRM (SoundCloud's paid songs): named by the site's own metadata, the
+    way the same song in a list is, and downloaded from YouTube; the page's title tags when that metadata can't be
+    read."""
+    from yt_dlp.utils import DownloadError
+
+    try:
+        with _ydl({"ignore_no_formats_error": True}) as ydl:
+            info = ydl.extract_info(url, download=False, process=False)
+    except DownloadError:
+        info = None
+    if not info or "entries" in info or info.get("_type") == "playlist":
+        return _resolve_page(url, reason)
+    track = _track_from_info(info)
+    if not track.title:
+        return _resolve_page(url, reason)
+    track.query = _query(track)
+    return Resolved(title=label(track), kind="track", tracks=[track], folder=None)
+
+
+def _query(track: Track) -> str:
+    """What to search YouTube for to find track."""
+    return f"{track.artist.split(', ')[0]} - {track.title}" if track.artist else track.title
+
+
 def _resolve_page(url: str, reason: str) -> Resolved:
     try:
         final, body = http_get(url)
@@ -438,7 +566,7 @@ def _resolve_page(url: str, reason: str) -> Resolved:
     track = track_from_meta(page_meta(body.decode("utf-8", "replace")), final)
     if track is None:
         raise SiphonError(reason)
-    return Resolved(title=_label(track), kind="track", tracks=[track], folder=None)
+    return Resolved(title=label(track), kind="track", tracks=[track], folder=None)
 
 
 def source_link(url: str) -> str:
@@ -464,19 +592,25 @@ def source_link(url: str) -> str:
                                     urllib.parse.urlencode(query), ""))
 
 
-def _label(track: Track) -> str:
+def label(track: Track) -> str:
+    """How a song is named where it is listed: "Artist - Title", its link while the name is unknown."""
+    if not track.title:
+        return track.url
     return f"{track.artist} - {track.title}" if track.artist else track.title
 
 
 def _track_from_info(info: dict, index: int | None = None) -> Track:
+    """The song a yt-dlp result describes; its title stays "" when the result has none (a flat list's entry):
+    download() then names the song from its own page, never "Untitled", which every such song would share."""
     title, artist = match.describe(info)
     url = info.get("webpage_url") or info.get("url") or ""
     thumbnails = _thumbnails(info)
     return Track(
         url=url,
-        title=title or "Untitled",
+        title=title,
         artist=artist,
-        album=info.get("album") or "",
+        # yt-dlp gives every song of a SoundCloud set the set's title as its album, a plain playlist's too
+        album="" if info.get("album_type") == "playlist" else info.get("album") or "",
         duration=info.get("duration"),
         cover_url=thumbnails[0] if thumbnails else "",
         source=_source(info, url),
@@ -523,6 +657,10 @@ def download(track: Track, outdir: Path, fmt: str, progress: ProgressFn | None =
             raise Cancelled()
 
     check()
+    if track.error:
+        raise SiphonError(track.error)
+    if track.query and not track.title:
+        raise SiphonError("The link doesn't give this song's name, so Siphon can't look for it.")
     if track.query or _is_youtube(track.url):  # store tracks (query set) are downloaded from YouTube
         _require_js()
     if track.source == "Spotify":
@@ -530,13 +668,16 @@ def download(track: Track, outdir: Path, fmt: str, progress: ProgressFn | None =
 
         track = spotify.enrich(track)
     outdir = Path(outdir)
-    stem = _fit(file_stem(track), outdir)
+    # A song the list could not fully name (no title, or no artist) is named once its own page is read, as its own
+    # link would name it: until then its file can't be looked for, and a stand-in name would be every such song's.
+    named = bool(track.query or (track.title and track.artist))
     try:
         outdir.mkdir(parents=True, exist_ok=True)
-        existing = _existing(outdir, stem, fmt)
-        if existing:
-            report(Progress("done", 1.0, "already downloaded"))
-            return existing
+        if named:
+            stem = _fit(file_stem(track), outdir)
+            if existing := _existing(outdir, stem, fmt):
+                report(Progress("done", 1.0, "already downloaded"))
+                return existing
         work = Path(tempfile.mkdtemp(prefix=".siphon-", dir=outdir))
     except OSError as e:
         raise SiphonError(f"Can't write to {outdir}: {e.strerror or e}.") from None
@@ -546,7 +687,23 @@ def download(track: Track, outdir: Path, fmt: str, progress: ProgressFn | None =
     try:
         with _ydl({**ytdlp_options(fmt, work), **_hooks(report, check),
                    "extract_flat": "in_playlist", "playlistend": 6}) as ydl:
-            info = _source_info(ydl, track, report, check)
+            try:
+                info = _source_info(ydl, track, report, check)
+            except DownloadError as e:
+                if track.query or not track.title or _is_youtube(track.url) or "drm" not in str(e).lower():
+                    raise
+                # A song of a list whose site locks its audio (SoundCloud's paid songs): found on YouTube like
+                # the same song's own link (_resolve_locked), named and tagged from the list.
+                _require_js()
+                track = replace(track, query=_query(track))
+                info = _source_info(ydl, track, report, check)
+            if not named:
+                if not track.query:
+                    track = _named(track, info)
+                stem = _fit(file_stem(track), outdir)
+                if existing := _existing(outdir, stem, fmt):
+                    report(Progress("done", 1.0, "already downloaded"))
+                    return existing
             check()
             report(Progress("downloading", 0.0))
             info = _fetch(ydl, info, cancel)
@@ -568,6 +725,19 @@ def download(track: Track, outdir: Path, fmt: str, progress: ProgressFn | None =
         shutil.rmtree(work, ignore_errors=True)
     report(Progress("done", 1.0, final.name))
     return final
+
+
+def _named(track: Track, info: dict) -> Track:
+    """track named from its own page (info): the title and artist its link alone gets; a page without a title gives
+    a name made of the site and the song's id, the same each time and no other song's."""
+    own = _track_from_info(info)
+    title = own.title or track.title
+    if not title:
+        song_id = str(info.get("id") or "") or hashlib.sha1(track.url.encode()).hexdigest()[:10]
+        title = f"{track.source or own.source} {song_id}".strip()
+    return replace(track, title=title, artist=own.artist or track.artist, album=track.album or own.album,
+                   duration=track.duration or own.duration, cover_url=track.cover_url or own.cover_url,
+                   track_no=track.track_no or own.track_no)
 
 
 def _fit(stem: str, outdir: Path) -> str:
@@ -649,14 +819,26 @@ def _source_info(ydl: "yt_dlp.YoutubeDL", track: Track, report: ProgressFn,
         info = ydl.extract_info(track.url, download=False, process=False)
         if not info or "entries" in info or info.get("_type") == "playlist":
             raise SiphonError("This link is a list, not a single track.")
+        if _preview_only(info):
+            raise SiphonError(PREVIEW)
         return info
     report(Progress("matching", None, f"Searching YouTube for {track.query}"))
     primary_artist = track.artist.split(", ")[0]
     found = match.find(ydl, track.query, track.title, primary_artist, track.duration, check)
     if found is None:
-        raise SiphonError(f"No good match on YouTube for {_label(track)}.")
+        raise SiphonError(f"No good match on YouTube for {label(track)}.")
     report(Progress("matching", 1.0, f"Matched {found.title}"))
     return found.info or ydl.extract_info(found.url, download=False, process=False)
+
+
+PREVIEW = "SoundCloud only gives a 30-second preview of this song (the full song needs SoundCloud Go+)."
+
+
+def _preview_only(info: dict) -> bool:
+    """Whether a site offers only a preview clip of the song: yt-dlp still downloads the clip when nothing else is
+    there, and it would be saved as the song (SoundCloud Go+ songs: 30 s)."""
+    formats = info.get("formats") or []
+    return bool(formats) and all("preview" in str(f.get("format_id") or "") for f in formats)
 
 
 def _output_file(info: dict, work: Path) -> Path:

@@ -1,0 +1,587 @@
+{
+ "_comment": "yt-dlp's flat read of a SoundCloud set (url_transparent entries: no title, no artist, one only an api-v2 address) and SoundCloud's api-v2 tracks?ids= answer for its songs, in the order it gave them, trimmed; recorded 2026-09-28",
+ "flat": {
+  "_type": "playlist",
+  "id": "2284613",
+  "title": "The Royal Concept EP",
+  "album": "The Royal Concept EP",
+  "album_artist": "The Royal Concept",
+  "album_type": "ep",
+  "uploader": "The Royal Concept",
+  "extractor_key": "SoundcloudSet",
+  "webpage_url": "https://soundcloud.com/the-concept-band/sets/the-royal-concept-ep",
+  "thumbnails": [
+   {
+    "id": "t500x500",
+    "url": "https://i1.sndcdn.com/artworks-000030896212-o16m9v-t500x500.jpg",
+    "width": 500,
+    "height": 500
+   },
+   {
+    "id": "original",
+    "url": "https://i1.sndcdn.com/artworks-000030896212-o16m9v-original.jpg",
+    "preference": 10
+   }
+  ],
+  "entries": [
+   {
+    "album": "The Royal Concept EP",
+    "album_artist": "The Royal Concept",
+    "album_type": "ep",
+    "ie_key": "Soundcloud",
+    "id": "75206121",
+    "_type": "url_transparent",
+    "url": "https://soundcloud.com/the-concept-band/world-on-fire-1"
+   },
+   {
+    "album": "The Royal Concept EP",
+    "album_artist": "The Royal Concept",
+    "album_type": "ep",
+    "ie_key": "Soundcloud",
+    "id": "47127625",
+    "_type": "url_transparent",
+    "url": "https://soundcloud.com/the-concept-band/gimme-twice-mastered"
+   },
+   {
+    "album": "The Royal Concept EP",
+    "album_artist": "The Royal Concept",
+    "album_type": "ep",
+    "ie_key": "Soundcloud",
+    "id": "47127627",
+    "_type": "url_transparent",
+    "url": "https://soundcloud.com/the-concept-band/goldrushed-mastered"
+   },
+   {
+    "album": "The Royal Concept EP",
+    "album_artist": "The Royal Concept",
+    "album_type": "ep",
+    "ie_key": "Soundcloud",
+    "id": "30510138",
+    "_type": "url_transparent",
+    "url": "https://soundcloud.com/the-concept-band/the-concept-d-d-dance"
+   },
+   {
+    "album": "The Royal Concept EP",
+    "album_artist": "The Royal Concept",
+    "album_type": "ep",
+    "ie_key": "Soundcloud",
+    "id": "47127629",
+    "_type": "url_transparent",
+    "url": "https://soundcloud.com/the-concept-band/in-the-end-mastered"
+   },
+   {
+    "album": "The Royal Concept EP",
+    "album_artist": "The Royal Concept",
+    "album_type": "ep",
+    "ie_key": "Soundcloud",
+    "id": "47127631",
+    "_type": "url_transparent",
+    "url": "https://api-v2.soundcloud.com/tracks/47127631"
+   }
+  ]
+ },
+ "tracks": [
+  {
+   "id": 75206121,
+   "kind": "track",
+   "title": "World On Fire (Re-Mastered)",
+   "permalink_url": "https://soundcloud.com/the-concept-band/world-on-fire-1",
+   "duration": 199889,
+   "full_duration": 199959,
+   "artwork_url": "https://i1.sndcdn.com/artworks-acRKqXJcJGVN-0-large.jpg",
+   "policy": "MONETIZE",
+   "monetization_model": "AD_SUPPORTED",
+   "genre": "Alternative",
+   "created_at": "2013-01-16T19:50:33Z",
+   "publisher_metadata": {
+    "id": 75206121,
+    "artist": "The Royal Concept",
+    "album_title": "Royal"
+   },
+   "user": {
+    "id": 9615865,
+    "username": "The Royal Concept",
+    "permalink": "the-concept-band",
+    "permalink_url": "https://soundcloud.com/the-concept-band",
+    "avatar_url": "https://i1.sndcdn.com/avatars-000473822721-ujh21l-large.jpg"
+   },
+   "media": {
+    "transcodings": [
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:75206121/365d29e4-066f-46ae-86e6-58cc56358cc8/stream/cbc-encrypted-hls",
+      "preset": "aac_160k",
+      "snipped": false,
+      "format": {
+       "protocol": "cbc-encrypted-hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:75206121/365d29e4-066f-46ae-86e6-58cc56358cc8/stream/ctr-encrypted-hls",
+      "preset": "aac_160k",
+      "snipped": false,
+      "format": {
+       "protocol": "ctr-encrypted-hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:75206121/31749082-3948-4bc1-8312-214969776119/stream/cbc-encrypted-hls",
+      "preset": "aac_96k",
+      "snipped": false,
+      "format": {
+       "protocol": "cbc-encrypted-hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "lq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:75206121/31749082-3948-4bc1-8312-214969776119/stream/ctr-encrypted-hls",
+      "preset": "aac_96k",
+      "snipped": false,
+      "format": {
+       "protocol": "ctr-encrypted-hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "lq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:75206121/daedd0ba-6fc5-41e0-a8f1-b40e9c2865f7/stream/cbc-encrypted-hls",
+      "preset": "abr_sq",
+      "snipped": false,
+      "format": {
+       "protocol": "cbc-encrypted-hls",
+       "mime_type": "audio/mpegurl"
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:75206121/daedd0ba-6fc5-41e0-a8f1-b40e9c2865f7/stream/ctr-encrypted-hls",
+      "preset": "abr_sq",
+      "snipped": false,
+      "format": {
+       "protocol": "ctr-encrypted-hls",
+       "mime_type": "audio/mpegurl"
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:75206121/08de820f-47f0-4237-868f-9e13cd0320a2/stream/hls",
+      "preset": "mp3_0_0",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mpeg"
+      },
+      "quality": "sq"
+     }
+    ]
+   },
+   "streamable": true
+  },
+  {
+   "id": 47127627,
+   "kind": "track",
+   "title": "Goldrushed (Re-Mastered)",
+   "permalink_url": "https://soundcloud.com/the-concept-band/goldrushed-mastered",
+   "duration": 227103,
+   "full_duration": 227155,
+   "artwork_url": "https://i1.sndcdn.com/artworks-RjoX0OabNYsr-0-large.jpg",
+   "policy": "MONETIZE",
+   "monetization_model": "AD_SUPPORTED",
+   "genre": "Alternative",
+   "created_at": "2012-05-21T21:20:07Z",
+   "publisher_metadata": {
+    "id": 47127627,
+    "artist": "The Royal Concept",
+    "album_title": "Royal"
+   },
+   "user": {
+    "id": 9615865,
+    "username": "The Royal Concept",
+    "permalink": "the-concept-band",
+    "permalink_url": "https://soundcloud.com/the-concept-band",
+    "avatar_url": "https://i1.sndcdn.com/avatars-000473822721-ujh21l-large.jpg"
+   },
+   "media": {
+    "transcodings": [
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127627/8704b9d7-bb5e-4acb-981c-c24cc4912eea/stream/cbc-encrypted-hls",
+      "preset": "aac_160k",
+      "snipped": false,
+      "format": {
+       "protocol": "cbc-encrypted-hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127627/8704b9d7-bb5e-4acb-981c-c24cc4912eea/stream/ctr-encrypted-hls",
+      "preset": "aac_160k",
+      "snipped": false,
+      "format": {
+       "protocol": "ctr-encrypted-hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127627/b508536e-07c6-41e0-893b-cf7a242f5a79/stream/cbc-encrypted-hls",
+      "preset": "aac_96k",
+      "snipped": false,
+      "format": {
+       "protocol": "cbc-encrypted-hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "lq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127627/b508536e-07c6-41e0-893b-cf7a242f5a79/stream/ctr-encrypted-hls",
+      "preset": "aac_96k",
+      "snipped": false,
+      "format": {
+       "protocol": "ctr-encrypted-hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "lq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127627/f2272661-38a4-4977-a36c-62013b21cfb2/stream/cbc-encrypted-hls",
+      "preset": "abr_sq",
+      "snipped": false,
+      "format": {
+       "protocol": "cbc-encrypted-hls",
+       "mime_type": "audio/mpegurl"
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127627/f2272661-38a4-4977-a36c-62013b21cfb2/stream/ctr-encrypted-hls",
+      "preset": "abr_sq",
+      "snipped": false,
+      "format": {
+       "protocol": "ctr-encrypted-hls",
+       "mime_type": "audio/mpegurl"
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127627/a61b7b4f-a228-4b32-ac74-9cc8bcfcb055/stream/hls",
+      "preset": "mp3_0_0",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mpeg"
+      },
+      "quality": "sq"
+     }
+    ]
+   },
+   "streamable": true
+  },
+  {
+   "id": 30510138,
+   "kind": "track",
+   "title": "D-D-Dance",
+   "permalink_url": "https://soundcloud.com/the-concept-band/the-concept-d-d-dance",
+   "duration": 219657,
+   "full_duration": 219747,
+   "artwork_url": "https://i1.sndcdn.com/artworks-000025359642-e5iuq2-large.jpg",
+   "policy": "ALLOW",
+   "monetization_model": "NOT_APPLICABLE",
+   "genre": "Alternative Pop",
+   "created_at": "2011-12-13T14:49:27Z",
+   "publisher_metadata": {},
+   "user": {
+    "id": 9615865,
+    "username": "The Royal Concept",
+    "permalink": "the-concept-band",
+    "permalink_url": "https://soundcloud.com/the-concept-band",
+    "avatar_url": "https://i1.sndcdn.com/avatars-000473822721-ujh21l-large.jpg"
+   },
+   "media": {
+    "transcodings": [
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:30510138/047c2997-75be-458f-9c6b-f1fbf1a47c1d/stream/hls",
+      "preset": "aac_160k",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:30510138/32d91d6c-9e56-4d49-830b-8079ce976b0e/stream/hls",
+      "preset": "aac_96k",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "lq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:30510138/f5bbb365-fcce-4db5-aca2-8e07d21043ce/stream/hls",
+      "preset": "abr_sq",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mpegurl"
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:30510138/f1f7a51f-858e-449a-8722-101cfa732f3d/stream/hls",
+      "preset": "mp3_0_0",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mpeg"
+      },
+      "quality": "sq"
+     }
+    ]
+   },
+   "streamable": true
+  },
+  {
+   "id": 47127625,
+   "kind": "track",
+   "title": "The Royal Concept - Gimme Twice",
+   "permalink_url": "https://soundcloud.com/the-concept-band/gimme-twice-mastered",
+   "duration": 205193,
+   "full_duration": 205348,
+   "artwork_url": "https://i1.sndcdn.com/artworks-000043574502-266jbv-large.jpg",
+   "policy": "ALLOW",
+   "monetization_model": "NOT_APPLICABLE",
+   "genre": "Alternative Pop",
+   "created_at": "2012-05-21T21:20:07Z",
+   "publisher_metadata": {
+    "id": 47127625
+   },
+   "user": {
+    "id": 9615865,
+    "username": "The Royal Concept",
+    "permalink": "the-concept-band",
+    "permalink_url": "https://soundcloud.com/the-concept-band",
+    "avatar_url": "https://i1.sndcdn.com/avatars-000473822721-ujh21l-large.jpg"
+   },
+   "media": {
+    "transcodings": [
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127625/19837246-8b46-4eea-a8d5-d672ba97410f/stream/hls",
+      "preset": "aac_160k",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127625/8c7e66df-755d-4d85-9338-02f5375dca65/stream/hls",
+      "preset": "aac_96k",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "lq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127625/f2f647e3-e012-4432-860c-0436028b81bb/stream/hls",
+      "preset": "abr_sq",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mpegurl"
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127625/aadbf34b-1a7a-475f-834d-ca8d74ce5a3e/stream/hls",
+      "preset": "mp3_0_0",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mpeg"
+      },
+      "quality": "sq"
+     }
+    ]
+   },
+   "streamable": true
+  },
+  {
+   "id": 47127629,
+   "kind": "track",
+   "title": "In The End",
+   "permalink_url": "https://soundcloud.com/the-concept-band/in-the-end-mastered",
+   "duration": 324286,
+   "full_duration": 324340,
+   "artwork_url": "https://i1.sndcdn.com/artworks-nmfGl00Oy5bQ-0-large.jpg",
+   "policy": "MONETIZE",
+   "monetization_model": "AD_SUPPORTED",
+   "genre": "Alternative",
+   "created_at": "2012-05-21T21:20:07Z",
+   "publisher_metadata": {
+    "id": 47127629,
+    "artist": "The Royal Concept",
+    "album_title": "Goldrushed"
+   },
+   "user": {
+    "id": 9615865,
+    "username": "The Royal Concept",
+    "permalink": "the-concept-band",
+    "permalink_url": "https://soundcloud.com/the-concept-band",
+    "avatar_url": "https://i1.sndcdn.com/avatars-000473822721-ujh21l-large.jpg"
+   },
+   "media": {
+    "transcodings": [
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127629/0d9ccd15-5eac-4dc5-8294-f24061028766/stream/cbc-encrypted-hls",
+      "preset": "aac_160k",
+      "snipped": false,
+      "format": {
+       "protocol": "cbc-encrypted-hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127629/0d9ccd15-5eac-4dc5-8294-f24061028766/stream/ctr-encrypted-hls",
+      "preset": "aac_160k",
+      "snipped": false,
+      "format": {
+       "protocol": "ctr-encrypted-hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127629/e22b9e78-353a-4dc8-be66-06e1af21a8f5/stream/cbc-encrypted-hls",
+      "preset": "aac_96k",
+      "snipped": false,
+      "format": {
+       "protocol": "cbc-encrypted-hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "lq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127629/e22b9e78-353a-4dc8-be66-06e1af21a8f5/stream/ctr-encrypted-hls",
+      "preset": "aac_96k",
+      "snipped": false,
+      "format": {
+       "protocol": "ctr-encrypted-hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "lq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127629/1e865b30-31a6-4e29-85f5-f0e2b8de499f/stream/cbc-encrypted-hls",
+      "preset": "abr_sq",
+      "snipped": false,
+      "format": {
+       "protocol": "cbc-encrypted-hls",
+       "mime_type": "audio/mpegurl"
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127629/1e865b30-31a6-4e29-85f5-f0e2b8de499f/stream/ctr-encrypted-hls",
+      "preset": "abr_sq",
+      "snipped": false,
+      "format": {
+       "protocol": "ctr-encrypted-hls",
+       "mime_type": "audio/mpegurl"
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127629/3c40a8b6-6a62-46c6-8f6d-a7e105b3dd50/stream/hls",
+      "preset": "mp3_0_0",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mpeg"
+      },
+      "quality": "sq"
+     }
+    ]
+   },
+   "streamable": true
+  },
+  {
+   "id": 47127631,
+   "kind": "track",
+   "title": "Knocked Up",
+   "permalink_url": "https://soundcloud.com/the-concept-band/knocked-up-mastered",
+   "duration": 221872,
+   "full_duration": 222046,
+   "artwork_url": "https://i1.sndcdn.com/artworks-000043574646-iq6flj-large.jpg",
+   "policy": "ALLOW",
+   "monetization_model": "NOT_APPLICABLE",
+   "genre": "Alternative Pop",
+   "created_at": "2012-05-21T21:20:07Z",
+   "publisher_metadata": {
+    "id": 47127631
+   },
+   "user": {
+    "id": 9615865,
+    "username": "The Royal Concept",
+    "permalink": "the-concept-band",
+    "permalink_url": "https://soundcloud.com/the-concept-band",
+    "avatar_url": "https://i1.sndcdn.com/avatars-000473822721-ujh21l-large.jpg"
+   },
+   "media": {
+    "transcodings": [
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127631/61a54b63-4aa3-4bbe-975a-881f17b1b8ce/stream/hls",
+      "preset": "aac_160k",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127631/11eaba9a-9780-4c9f-a810-a97d1549e3e7/stream/hls",
+      "preset": "aac_96k",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mp4; codecs=\"mp4a.40.2\""
+      },
+      "quality": "lq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127631/2dadb836-7331-4f7b-ad95-2f690b6cc27d/stream/hls",
+      "preset": "abr_sq",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mpegurl"
+      },
+      "quality": "sq"
+     },
+     {
+      "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:47127631/25fb64ce-28d2-4e87-8534-7487b4fac4fc/stream/hls",
+      "preset": "mp3_0_0",
+      "snipped": false,
+      "format": {
+       "protocol": "hls",
+       "mime_type": "audio/mpeg"
+      },
+      "quality": "sq"
+     }
+    ]
+   },
+   "streamable": true
+  }
+ ]
+}
