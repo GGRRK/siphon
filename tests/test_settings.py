@@ -71,7 +71,7 @@ def test_save_uses_xdg_config_home(monkeypatch, tmp_path):
     assert json.loads((tmp_path / "siphon" / "settings.json").read_text()) == {
         "format": "m4a", "folder": str(tmp_path / "x"), "volume": 0.8, "shuffle": False,
         "repeat": "off", "sort": "added", "page": "download", "style": "system", "accent": "system",
-        "auto_update": True, "auto_engine": True,
+        "close_to_tray": True, "told_about_tray": False, "auto_update": True, "auto_engine": True,
         "equalizer": {"enabled": True, "bands": [0.0] * 10, "preset": "Flat", "presets": {}}}
 
 
@@ -97,12 +97,14 @@ def test_file_from_before_the_player_loads_with_new_defaults(tmp_path, defaults)
     assert (loaded.volume, loaded.shuffle, loaded.repeat, loaded.sort, loaded.page) == (0.8, False, "off", "added", "download")
     assert (loaded.style, loaded.accent) == ("system", "system")
     assert (loaded.auto_update, loaded.auto_engine) == (True, True)
+    assert (loaded.close_to_tray, loaded.told_about_tray) == (True, False)
 
 
 def test_player_and_view_state_round_trip(tmp_path, defaults):
     path = tmp_path / "settings.json"
     chosen = Settings("mp3", tmp_path, volume=0.35, shuffle=True, repeat="one", sort="artist", page="playlists",
-                      style="dark", accent="purple", auto_update=False, auto_engine=False)
+                      style="dark", accent="purple", close_to_tray=False, told_about_tray=True, auto_update=False,
+                      auto_engine=False)
     settings.save(chosen, path)
     assert settings.load(defaults, FORMATS, path) == chosen
 
@@ -117,6 +119,8 @@ def test_player_and_view_state_round_trip(tmp_path, defaults):
     ("accent", "Purple"), ("accent", "#9141ac"), ("accent", "magenta"), ("accent", 0), ("accent", False),
     ("auto_update", "false"), ("auto_update", 0), ("auto_update", None), ("auto_update", "no"),
     ("auto_engine", "true"), ("auto_engine", 1), ("auto_engine", []), ("auto_engine", {}),
+    ("close_to_tray", "false"), ("close_to_tray", 0), ("close_to_tray", None),
+    ("told_about_tray", "yes"), ("told_about_tray", 1),
 ])
 def test_bad_new_values_fall_back_alone(tmp_path, defaults, key, value):
     path = tmp_path / "settings.json"

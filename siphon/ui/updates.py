@@ -4,7 +4,8 @@ Checks run on worker threads; the state changes, and the signals are emitted, on
 Read the attributes after "changed":
 
 - state: "idle" (not checked yet), "checking", "downloading" (fraction), "ready" (restart_to_update installs
-  it; it also installs by itself: on Windows when Siphon quits, from a git clone at the next start),
+  it; it also installs by itself: on Windows when Siphon quits - closing the window to the tray is not
+  quitting - and from a git clone at the next start),
   "up-to-date", "available" (the portable zip: page is the release to download), "unavailable" (this copy
   can't update itself; message says why) or "error" (message)
 - version (running), latest (GitHub's latest release, "" before a check), fraction, message (one sentence
@@ -81,10 +82,11 @@ class Updates(GObject.Object):
         """The quit was called off: downloads kept running."""
         self._restart = False
 
-    def finish(self) -> None:
+    def finish(self, session_ending: bool = False) -> None:
         """At shutdown: the Windows installer runs whenever an update is ready (it opens Siphon again only after
-        Restart); a git clone is updated by bin/siphon at its next start, which Restart makes now."""
-        if self.state != "ready" or (self._installer is None and not self._restart):
+        Restart); a git clone is updated by bin/siphon at its next start, which Restart makes now. Neither while
+        Windows ends the session: the update waits for the next quit."""
+        if self.state != "ready" or (self._installer is None and not self._restart) or session_ending:
             return
         try:
             if self._installer is not None:
@@ -116,7 +118,7 @@ class Updates(GObject.Object):
                 if state == "available":
                     message = f"Siphon {release.version} is available from its release page."
                 elif installer is not None:
-                    message = f"Siphon {release.version} is ready. It installs when Siphon closes."
+                    message = f"Siphon {release.version} is ready. It installs when you quit Siphon."
                 else:
                     message = f"Siphon {release.version} is ready. It installs when Siphon next starts."
                 result = found | {"state": state, "message": message}

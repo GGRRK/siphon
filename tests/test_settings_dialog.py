@@ -1,4 +1,5 @@
-"""The Settings dialog's logic that needs no display: the equalizer page's words and lists, the Updates page's lines."""
+"""The Settings dialog's logic that needs no display: the equalizer page's words and lists, the Updates page's lines,
+Close to Tray's subtitle; and the main window's three-dot menu."""
 
 from types import SimpleNamespace
 
@@ -6,6 +7,7 @@ import pytest
 
 from siphon import eq
 from siphon.ui import equalizer, settings_dialog
+from siphon.ui.window import main_menu
 
 
 @pytest.mark.parametrize("hz, name", [(31, "31 Hz"), (500, "500 Hz"), (1000, "1 kHz"), (16000, "16 kHz")])
@@ -98,3 +100,19 @@ def test_engine_line_keeps_a_fetched_engine_after_a_failed_check():
         "Couldn't reach PyPI. yt-dlp 2026.09.25 will be used from the next start.")
     assert settings_dialog.engine_line(_updates(engine_state="error", engine_message="Couldn't reach PyPI.")) == (
         "Couldn't reach PyPI.")
+
+
+def test_close_to_tray_says_why_it_is_off():
+    assert settings_dialog.tray_line(True) == "Closing the window keeps Siphon playing and downloading in the tray"
+    assert settings_dialog.tray_line(False) == "No system tray was found, so closing the window quits Siphon"
+
+
+def test_the_three_dot_menu_has_quit():
+    menu = main_menu()
+    items = []
+    for s in range(menu.get_n_items()):
+        section = menu.get_item_link(s, "section")
+        items += [(section.get_item_attribute_value(i, "label").get_string(),
+                   section.get_item_attribute_value(i, "action").get_string()) for i in range(section.get_n_items())]
+    assert items == [("Open Music Folder", "win.open-folder"), ("Refresh Library", "win.refresh-library"),
+                     ("Update Engine", "app.update-engine"), ("About Siphon", "app.about"), ("Quit", "app.quit")]

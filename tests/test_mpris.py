@@ -21,19 +21,6 @@ pytestmark = [
     pytest.mark.filterwarnings("ignore::DeprecationWarning:gi.events"),  # PyGObject's MainContext.iteration()
 ]
 
-_BUS_CONFIG = """<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
- "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
-<busconfig>
-  <type>session</type>
-  <listen>unix:abstract={name}</listen>
-  <auth>EXTERNAL</auth>
-  <policy context="default">
-    <allow send_destination="*" eavesdrop="true"/>
-    <allow eavesdrop="true"/>
-    <allow own="*"/>
-  </policy>
-</busconfig>
-"""
 _PLAYER = "org.mpris.MediaPlayer2.siphon"
 _TITLES = ("First Tone", "Second Tone")
 
@@ -42,20 +29,6 @@ def _read_line(stream, timeout: float) -> str:
     ready, _, _ = select.select([stream], [], [], timeout)
     assert ready, "the child process did not answer in time"
     return stream.readline().strip()
-
-
-@pytest.fixture(scope="module")
-def bus(tmp_path_factory):
-    """The address of a private session bus (an abstract socket: no file to leave behind)."""
-    config = tmp_path_factory.mktemp("bus") / "session.conf"
-    config.write_text(_BUS_CONFIG.format(name=f"siphon-test-{uuid.uuid4().hex}"))
-    daemon = subprocess.Popen(["dbus-daemon", "--nofork", f"--config-file={config}", "--print-address=1"],
-                              stdout=subprocess.PIPE, text=True)
-    try:
-        yield _read_line(daemon.stdout, 5)
-    finally:
-        daemon.terminate()
-        daemon.wait(5)
 
 
 @pytest.fixture(scope="module")

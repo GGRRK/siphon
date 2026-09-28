@@ -34,18 +34,19 @@ Everything comes in the box (about 145 MB installed): Python, GTK 4 and libadwai
 
 Uninstalling leaves all of these. What differs from Linux:
 
-- **Updates**: the installed Siphon downloads a new release's `Setup.exe`, checks it against the sha256 GitHub publishes and installs it silently when Siphon closes (Restart does it at once and reopens Siphon). The portable zip never changes itself; it points to the release page instead.
+- **Updates**: the installed Siphon downloads a new release's `Setup.exe`, checks it against the sha256 GitHub publishes and installs it silently when you quit Siphon (closing the window only hides it in the tray; Restart does it at once and reopens Siphon; logging off or shutting down leaves it for the next quit). The portable zip never changes itself; it points to the release page instead.
 - **Media keys**: Windows has no MPRIS, so media keys and the Windows media overlay don't reach Siphon.
 - **YouTube's JavaScript challenges** are solved by the bundled QuickJS rather than Node.js: 2 MB instead of 90 and always the same, but it can add a few seconds to a YouTube download.
-- **One window per start**: `Siphon.exe URL` opens a new window rather than queueing the link in the running one.
+- **One Siphon per session**: GLib's own single instance needs D-Bus, so Siphon does it itself: starting it again, or `Siphon.exe URL`, shows the running window and queues the link there.
 
-The Windows build is made by `.github/workflows/windows.yml` on GitHub Actions: MSYS2 (UCRT64) with PyInstaller, ffmpeg and libmpv built from source for audio only (`packaging/windows/build-av.sh`), Inno Setup for the installer, then the whole app smoke-tested with MSYS2 moved out of the way: selftest with a real download, a Spotify track, an engine update, install, the window (light and dark), Siphon updating itself from a local test release, uninstall.
+The Windows build is made by `.github/workflows/windows.yml` on GitHub Actions: MSYS2 (UCRT64) with PyInstaller, ffmpeg and libmpv built from source for audio only (`packaging/windows/build-av.sh`), Inno Setup for the installer, then the whole app smoke-tested with MSYS2 moved out of the way: selftest with a real download, a Spotify track, an engine update, install, the window (light and dark), closing it to the tray, a second start, Quit from the tray menu, the session ending, Siphon updating itself from a local test release, uninstall.
 
 ## Use
 
 - `siphon` opens the window (or "Siphon" in the app launcher). Paste a link, press Enter. A link on the clipboard is offered when the window gets focus; dropping a link on the window queues it too. Two downloads run at once, the rest wait.
 - A playlist link (Spotify, YouTube, YouTube Music, SoundCloud…) becomes a playlist of the same name, with the playlist's picture, as soon as it is read; each song joins it as it finishes, in the playlist's order. Pasting the link again (in any form: `spotify:` URI, `?si=`, music.youtube.com) adds only what is new to the same playlist.
-- **Settings**, the cog at the top right (Ctrl+,): Appearance picks the style (System, Light or Dark) and the accent colour (System or one of GNOME's nine), and System follows the desktop, Windows included; Equalizer has the switch, the presets (Save Preset keeps your own curve, Delete Preset removes it) and ten sliders that change the sound as you drag; Updates switches Siphon's and the engine's own updates, shows what the last check found, and has Check Now, Restart to Update and Update Engine Now. Everything is remembered.
+- **Tray**: closing the window leaves Siphon running in the system tray, playing and downloading. Click the icon to bring the window back where it was, middle-click to play or pause, right-click for the current song, Play/Pause, Next, Previous and Quit Siphon; the first close says so once. Quit Siphon for good from that menu, from Quit in the ⋮ menu or with Ctrl+Q (it asks first while downloads run). On Linux the icon needs a bar with a system tray (KDE, Waybar, Quickshell, GNOME with the AppIndicator extension…); without one, closing the window quits as before. Close to Tray in the settings switches it off.
+- **Settings**, the cog at the top right (Ctrl+,): Appearance picks the style (System, Light or Dark) and the accent colour (System or one of GNOME's nine), and System follows the desktop, Windows included, and has Close to Tray; Equalizer has the switch, the presets (Save Preset keeps your own curve, Delete Preset removes it) and ten sliders that change the sound as you drag; Updates switches Siphon's and the engine's own updates, shows what the last check found, and has Check Now, Restart to Update and Update Engine Now. Everything is remembered.
 - **Updates**: at every start Siphon asks GitHub for its latest release and gets it ready, and fetches the newest yt-dlp for the next start; both can be switched off in the settings. A git clone is fast-forwarded to the release when Siphon next starts, and only a clean `master` of GGRRK/siphon that the release extends: a branch, local commits or changes are left alone.
 - `siphon URL...` queues links in the running window (or opens it).
 - `siphon get URL... [-f mp3|m4a|opus|flac|best] [-o DIR]` downloads in the terminal; a playlist link also writes its playlist into `DIR/Playlists`, the same way.
@@ -74,6 +75,7 @@ When downloads start failing with "YouTube refused the download", run Update Eng
 | `siphon/library.py`, `siphon/playlists.py`, `siphon/covers.py` | the music folder: cached tag scan and search, M3U8 playlists, embedded covers |
 | `siphon/player.py`, `siphon/eq.py`, `siphon/mpris.py` | playback through libmpv (queue, shuffle, repeat, equalizer) and its MPRIS face |
 | `siphon/app.py`, `siphon/ui/` | the libadwaita window |
+| `siphon/tray.py`, `siphon/sni.py`, `siphon/wintray.py` | the tray icon and its menu: a StatusNotifierItem with dbusmenu on Linux, the notification area (and one Siphon per session) on Windows |
 | `siphon/paths.py`, `siphon/names.py` | per-platform folders and start-up (a packaged build's `bin/`), Windows file-name rules |
 | `siphon/engine.py` | engine updates: verified yt-dlp wheels from PyPI, used from the next start |
 | `siphon/updater.py`, `siphon/ui/updates.py` | Siphon's own updates from its GitHub releases (installer, portable zip, git clone), and their state for the window |

@@ -1,4 +1,5 @@
-"""The Siphon application: single instance, `siphon URL...` queues links; owns the settings, library and player."""
+"""The Siphon application: single instance, `siphon URL...` queues links; owns the settings, library, player and
+the tray icon, which keeps Siphon running after its window is closed."""
 
 import importlib.util
 import os
@@ -6,7 +7,7 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
-from . import __version__, paths, settings
+from . import __version__, paths, settings, tray
 from .ui.appearance import Appearance  # importing siphon.ui first pins GTK 4 and libadwaita 1
 from .ui.music import Music
 from .ui.updates import Updates
@@ -17,6 +18,8 @@ APP_ID = "io.github.ggrrk.Siphon"
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 _STYLE = Path(__file__).resolve().parent / "ui" / "style.css"
 _SAVE_DELAY_MS = 500
+_VOLUME_STEP = 0.05  # per wheel notch on the tray icon
+_TRAY_GRACE_S = 10  # a bar that restarts is back sooner; the window comes back if its tray does not
 
 
 def _fake(name: str) -> ModuleType:
@@ -60,6 +63,8 @@ class SiphonApp(Adw.Application):
         self._window: SiphonWindow | None = None
         self._save_source = 0
         self._engine_progress: Adw.Toast | None = None
+        self.tray: tray.Tray | None = None
+        self._tray_lost = 0
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -117,6 +122,13 @@ class SiphonApp(Adw.Application):
         if not paths.windows() and os.environ.get("SIPHON_NO_MPRIS") != "1":
             from .mpris import Mpris
             self._mpris = Mpris(self.player, self)
+        self.tray = tray.create(self.player, self.get_dbus_connection())
+        if self.tray is not None:
+            self.tray.connect("command", self._on_tray_command)
+            self.tray.connect("scroll", self._on_tray_scroll)
+            self.tray.connect("open", self._on_tray_open)
+            self.tray.connect("session-end", self._on_session_end)
+            self.tray.connect("notify::available", self._on_tray_available)
         self.music.rescan()
 
     def do_shutdown(self) -> None:
@@ -127,13 +139,20 @@ class SiphonApp(Adw.Application):
         if self._save_source:
             GLib.source_remove(self._save_source)
             self._write_settings()
-        self.updates.finish()
+        if self._tray_lost:
+            GLib.source_remove(self._tray_lost)
+        # an ending Windows session (logoff, shutdown, or an installer closing Siphon) starts no installer
+        self.updates.finish(session_ending=self.tray is not None and self.tray.session_ending)
+        if self.tray is not None:
+            self.tray.close()
         Adw.Application.do_shutdown(self)
 
     def do_activate(self) -> None:
         if self._window is None:
-            self._window = SiphonWindow(self, self.core, self.prefs, self.save_settings, self.music)
+            self._window = SiphonWindow(self, self.core, self.prefs, self.save_settings, self.music,
+                                        hide_on_close=self.hides_on_close)
             self._window.connect("destroy", self._on_window_destroyed)
+            self._window.connect("hidden", self._on_window_hidden)
             self._window.connect("close-cancelled", lambda _window: self.updates.cancel_restart())
             # Once, with a window for the news; never for the development stand-in, which would reach GitHub.
             if os.environ.get("SIPHON_FAKE_CORE") != "1":
@@ -141,14 +160,83 @@ class SiphonApp(Adw.Application):
         self._window.present()
 
     def do_command_line(self, command_line: Gio.ApplicationCommandLine) -> int:
-        self.activate()
-        links = command_line.get_arguments()[1:]
-        for arg in self._window.queue_links(links) if links else []:
+        for arg in self._open(command_line.get_arguments()[1:]):
             command_line.printerr_literal(f"siphon: not a link: {arg}\n")
         return 0
 
+    def _open(self, links: list[str]) -> list[str]:
+        """Show the window, hidden or not, and queue links; returns the arguments that were not links."""
+        self.activate()
+        return self._window.queue_links(links) if links else []
+
     def _on_window_destroyed(self, _window: SiphonWindow) -> None:
         self._window = None
+
+    # -- the tray
+
+    def hides_on_close(self) -> bool:
+        """Closing the window leaves Siphon running when that is wanted and a tray shows the icon."""
+        return self.prefs.close_to_tray and self.tray is not None and self.tray.available
+
+    def _on_window_hidden(self, _window: SiphonWindow) -> None:
+        """The first time the window closes to the tray, say where Siphon went: once, ever."""
+        if self.prefs.told_about_tray:
+            return
+        self.prefs.told_about_tray = True
+        self.save_settings()
+        heading = "Siphon Is Still Running"
+        body = "It keeps playing and downloading in the tray. To quit, choose Quit Siphon in the tray icon's menu."
+        if not self.tray.balloon(heading, body):  # Linux: the desktop's notifications
+            notification = Gio.Notification.new(heading)
+            notification.set_body(body)
+            notification.set_icon(Gio.ThemedIcon.new(APP_ID))
+            self.send_notification("tray", notification)
+
+    def _on_tray_command(self, source: tray.Tray, command: str) -> None:
+        player = self.player
+        if command == tray.SHOW:
+            token = source.take_token()
+            if token and self._window is not None:
+                self._window.set_startup_id(token)  # Wayland: the click's activation token lets it take focus
+            self.activate()
+        elif command == tray.PLAY_PAUSE:
+            if player.current is not None:
+                player.toggle()
+        elif command == tray.NEXT:
+            player.next()
+        elif command == tray.PREVIOUS:
+            player.previous()
+        elif command == tray.QUIT:
+            self.activate_action("quit", None)
+
+    def _on_tray_scroll(self, _tray: tray.Tray, notches: float) -> None:
+        self.player.set_volume(min(1.0, max(0.0, self.player.volume + notches * _VOLUME_STEP)))
+
+    def _on_tray_open(self, _tray: tray.Tray, args: list[str]) -> None:
+        """Windows: another Siphon was started and handed its command line over."""
+        for arg in self._open(args):
+            print(f"siphon: not a link: {arg}", file=sys.stderr)
+
+    def _on_session_end(self, _tray: tray.Tray) -> None:
+        """Windows is ending the session: stop and save now, without a question."""
+        if self._window is not None:
+            self._window.downloads.cancel_all()
+        self.quit()
+
+    def _on_tray_available(self, source: tray.Tray, _pspec) -> None:
+        if self._tray_lost:
+            GLib.source_remove(self._tray_lost)
+            self._tray_lost = 0
+        window = self._window
+        if not source.available and window is not None and not window.get_visible() and not window.quitting:
+            self._tray_lost = GLib.timeout_add_seconds(_TRAY_GRACE_S, self._on_tray_lost)
+
+    def _on_tray_lost(self) -> bool:
+        """The tray has been gone a while with the window hidden in it: bring the window back, the only way in."""
+        self._tray_lost = 0
+        if self._window is not None and not self._window.get_visible() and not self.tray.available:
+            self.activate()
+        return GLib.SOURCE_REMOVE
 
     # -- settings
 
@@ -192,7 +280,7 @@ class SiphonApp(Adw.Application):
         if self._window is None:
             self.quit()
         else:
-            self._window.close()  # asks first when downloads are running
+            self._window.quit()  # asks first when downloads are running, even from the tray
 
     def _on_about(self, *_args) -> None:
         try:
