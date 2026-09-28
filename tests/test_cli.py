@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from siphon import cli
+from siphon import cli, core
 from siphon.core import Resolved, SiphonError, Track
 
 LINK = "https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M"
@@ -95,3 +95,18 @@ def test_a_song_listed_without_a_name_shows_its_link(engine, tmp_path, monkeypat
     monkeypatch.setattr(cli, "download", lambda track, *args: (_ for _ in ()).throw(SiphonError(track.error)))
     assert cli.main(["https://soundcloud.com/band/sets/set", "-o", str(tmp_path)]) == 1
     assert "[1/1] https://soundcloud.com/band/gone  failed: This song is private" in capsys.readouterr().out
+
+
+def test_get_help_lists_every_format_with_its_sound_and_note(capsys):
+    with pytest.raises(SystemExit) as done:
+        cli.main(["--help"])
+    assert done.value.code == 0
+    text = capsys.readouterr().out
+    assert text.isascii()
+    formats = text[text.index("formats (-f):"):].splitlines()[1:]
+    assert len(formats) == 2 * len(core.FORMATS)
+    for (name, note), fmt in zip(zip(formats[::2], formats[1::2]), core.FORMATS):
+        blocks, word = core.FORMAT_QUALITY[fmt]
+        assert name.split()[0] == fmt and f"{core.FORMAT_LABELS[fmt]} - {word.lower()} sound" in name
+        assert note.strip() == core.FORMAT_NOTES[fmt]
+    assert "(the default)" in formats[0] and all("default" not in line for line in formats[1:])

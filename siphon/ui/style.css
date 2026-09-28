@@ -39,6 +39,29 @@
   min-height: 42px;
 }
 
+/* The Format row's quality meter: small blocks, filled in the theme's standalone green for a format that keeps the
+   site's own sound and halfway to its yellow for one converted from some site; colours made to read as text does,
+   on the row's and the list's backgrounds, light and dark. */
+
+.quality levelbar.discrete > trough > block {
+  min-width: 8px;
+  min-height: 8px;
+}
+
+.quality.level-4 levelbar > trough > block.filled {
+  background-color: var(--success-color);
+}
+
+.quality.level-3 levelbar > trough > block.filled {
+  background-color: color-mix(in oklab, var(--success-color), var(--warning-color));
+}
+
+/* The list's formats, three lines each, all in its 400 px without scrolling: 6 px above and below each, not 9. */
+row.format popover.menu scrolledwindow > listview > row {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
 /* The equalizer's bands, and the readout that floats over the one being moved. */
 
 .equalizer {

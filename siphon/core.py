@@ -60,7 +60,36 @@ FORMAT_LABELS = {
     "m4a": "M4A (AAC)",
     "opus": "Opus",
     "flac": "FLAC",
-    "best": "Original (no re-encode)",
+    "best": "Original",
+}
+# What each format gets you, for the Format row, its list and `siphon get --help`: true whichever site a song comes
+# from. Measured 2026-09-28 on 6 YouTube videos, 2 Spotify songs (found on YouTube) and 2 SoundCloud songs: YouTube
+# sends Opus at 125-161 kbps (0.94-1.2 MB a minute) and AAC, the M4A kind, at 129-134 kbps (0.97-1.0 MB);
+# SoundCloud sends AAC at 160 kbps (1.22-1.26 MB) and no Opus. A format the site sends is kept as it is (yt-dlp
+# copies it), any other is converted: Opus from SoundCloud at 160 kbps (1.29-1.3 MB), MP3 at 213-274 kbps (1.59-2.06
+# MB, 1.3-2.1 times Original: a quiet piano piece least, a metal song most), FLAC 24-bit at 1.0-1.8 Mbps (7.7-13.8 MB,
+# 6.4-14.7 times Original, the same two ends). So sizes are "often", not a range every song keeps. FLAC is lossless,
+# so its samples are Original's to -135 dB, bar the peaks a lossy decoder puts above full scale (up to 0.13% of one
+# song's). Once in 9 Opus downloads from YouTube, YouTube offered that request only a video's AAC: it was converted.
+FORMAT_NOTES = {
+    "opus": "As YouTube sends it, converted from others; not for Apple Music",
+    "m4a": "Small files that play almost anywhere, Apple Music included",
+    "mp3": "Plays on anything, even old car stereos; files often twice as big",
+    "flac": "Sounds like Original, no better, in files often 10 times bigger",
+    "best": "Exactly what the site sends; the file type depends on the site",
+}
+# The quality meter: how close a format's sound is to the site's own, in blocks out of QUALITY_BLOCKS, and its word;
+# never more than it is from any site. Original and FLAC keep the site's sound from every site. Opus, M4A and MP3
+# are each converted from some site (Opus from SoundCloud, MP3 from YouTube, M4A from one that sends MP3), once and
+# at a bitrate listening tests find nearly nobody can tell from its source; and M4A from YouTube is YouTube's other,
+# AAC version of the song, not the Opus Original keeps. Excellent, then, but not the site's own.
+QUALITY_BLOCKS = 4
+FORMAT_QUALITY = {
+    "opus": (3, "Excellent"),
+    "m4a": (3, "Excellent"),
+    "mp3": (3, "Excellent"),
+    "flac": (4, "Best"),
+    "best": (4, "Best"),
 }
 
 

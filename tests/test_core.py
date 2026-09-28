@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 
 import pytest
@@ -60,6 +61,34 @@ def test_ytdlp_options(fmt, selector, codec, quality, tmp_path):
 
 def test_every_format_has_a_label_and_options():
     assert set(core.FORMATS) == set(core.FORMAT_LABELS) == set(core._FORMAT_OPTS)
+
+
+def test_every_format_has_a_note_and_a_quality():
+    assert set(core.FORMAT_NOTES) == set(core.FORMAT_QUALITY) == set(core.FORMATS)
+    for fmt, (blocks, word) in core.FORMAT_QUALITY.items():
+        assert 0 < blocks <= core.QUALITY_BLOCKS and word, fmt
+
+
+def test_a_level_has_one_word():
+    words = {}
+    for blocks, word in core.FORMAT_QUALITY.values():
+        assert words.setdefault(blocks, word) == word
+
+
+def test_only_the_formats_that_keep_the_sites_own_sound_from_every_site_are_rated_best():
+    # Opus, M4A and MP3 are each kept as they are from some site but converted from another (core.FORMAT_QUALITY)
+    top = {fmt for fmt, (blocks, _word) in core.FORMAT_QUALITY.items() if blocks == core.QUALITY_BLOCKS}
+    assert top == {"best", "flac"}
+
+
+@pytest.mark.parametrize("fmt", core.FORMATS)
+def test_notes_are_short_plain_words(fmt):
+    note = core.FORMAT_NOTES[fmt]
+    # one line beside the chosen format's name and meter at the window's default width (measured, 820 px: every note
+    # one line; a 66-character one wrapped beside Opus's)
+    assert len(note) <= 65
+    assert note.isascii() and not note.endswith(".")  # the terminal's help on Windows; a sentence gets its full stop
+    assert not re.search(r"codec|container|bitrate|kbps|vbr|re-?encode|lossless|lossy|transcod", note, re.IGNORECASE)
 
 
 def test_download_rejects_unknown_format(tmp_path):

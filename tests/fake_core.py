@@ -26,8 +26,18 @@ class Cancelled(SiphonError):
     pass
 
 
-FORMATS = ("mp3", "m4a", "opus", "flac", "best")
-FORMAT_LABELS = {"mp3": "MP3", "m4a": "M4A (AAC)", "opus": "Opus", "flac": "FLAC", "best": "Original (no re-encode)"}
+FORMATS = ("opus", "m4a", "mp3", "flac", "best")
+FORMAT_LABELS = {"mp3": "MP3", "m4a": "M4A (AAC)", "opus": "Opus", "flac": "FLAC", "best": "Original"}
+FORMAT_NOTES = {
+    "opus": "As YouTube sends it, converted from others; not for Apple Music",
+    "m4a": "Small files that play almost anywhere, Apple Music included",
+    "mp3": "Plays on anything, even old car stereos; files often twice as big",
+    "flac": "Sounds like Original, no better, in files often 10 times bigger",
+    "best": "Exactly what the site sends; the file type depends on the site",
+}
+QUALITY_BLOCKS = 4
+FORMAT_QUALITY = {"opus": (3, "Excellent"), "m4a": (3, "Excellent"), "mp3": (3, "Excellent"), "flac": (4, "Best"),
+                  "best": (4, "Best")}
 
 
 @dataclass
