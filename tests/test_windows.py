@@ -480,6 +480,17 @@ def test_windows_keeps_its_own_tray_and_loads_nothing_of_linuxs():
     assert done.stdout.split() == ["Icon", "[]"]
 
 
+def test_windows_never_runs_in_the_background_without_a_tray(win):
+    """Closing the window with no tray quits on Windows, busy or not: MPRIS and a second start over D-Bus, the
+    ways back on Linux, do not exist there (and its notification area is always there)."""
+    from types import SimpleNamespace
+
+    from siphon.app import SiphonApp
+
+    app = SimpleNamespace(get_dbus_connection=lambda: object())
+    assert not SiphonApp.runs_in_background(app)
+
+
 def test_the_windows_ffmpeg_keeps_the_equalizers_filters():
     """build-av.sh trims ffmpeg for Windows; mpv silently drops a filter libavfilter lacks, so the equalizer
     (ffmpeg's aformat, volume and equalizer filters) would just stop working there. The selftest checks the built

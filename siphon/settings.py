@@ -37,6 +37,7 @@ class Settings:
     accent: str = "system"
     close_to_tray: bool = True  # closing the window hides it; Siphon keeps playing and downloading in the tray
     told_about_tray: bool = False  # the first close to the tray says so, once
+    told_about_background: bool = False  # and the first close into the background, with no tray (Linux)
     auto_update: bool = True  # Siphon checks GitHub at every start and gets a new release ready
     auto_engine: bool = True  # the same for yt-dlp, from PyPI
     # in this file rather than one of its own: a slider drag saves many times a second, and the app already
@@ -85,6 +86,7 @@ def load(defaults: Settings, formats: tuple[str, ...], path: Path | None = None)
         accent=choice("accent", ACCENTS),
         close_to_tray=flag("close_to_tray"),
         told_about_tray=flag("told_about_tray"),
+        told_about_background=flag("told_about_background"),
         auto_update=flag("auto_update"),
         auto_engine=flag("auto_engine"),
         equalizer=eq.from_json(data.get("equalizer"), defaults.equalizer),

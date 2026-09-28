@@ -105,6 +105,10 @@ def test_engine_line_keeps_a_fetched_engine_after_a_failed_check():
 def test_close_to_tray_says_why_it_is_off():
     assert settings_dialog.tray_line(True) == "Closing the window keeps Siphon playing and downloading in the tray"
     assert settings_dialog.tray_line(False) == "No system tray was found, so closing the window quits Siphon"
+    assert settings_dialog.tray_line(True, background=True) == settings_dialog.tray_line(True)
+    assert settings_dialog.tray_line(False, background=True) == (
+        "No system tray here: closing the window keeps Siphon running in the background while it plays or "
+        "downloads, and quits it otherwise")
 
 
 def test_the_three_dot_menu_has_quit():

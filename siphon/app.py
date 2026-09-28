@@ -1,5 +1,7 @@
 """The Siphon application: single instance, `siphon URL...` queues links; owns the settings, library, player and
-the tray icon, which keeps Siphon running after its window is closed."""
+the tray icon, which keeps Siphon running after its window is closed. On a Linux desktop with no tray at all,
+closing the window while Siphon plays or downloads keeps it running in the background instead, until it has
+nothing left to do; the desktop's media controls (MPRIS) or starting Siphon again bring the window back."""
 
 import importlib.util
 import os
@@ -20,6 +22,10 @@ _STYLE = Path(__file__).resolve().parent / "ui" / "style.css"
 _SAVE_DELAY_MS = 500
 _VOLUME_STEP = 0.05  # per wheel notch on the tray icon
 _TRAY_GRACE_S = 10  # a bar that restarts is back sooner; the window comes back if its tray does not
+# Hidden in the background (no tray), Siphon quits once nothing plays or downloads for this long; paused, it waits
+# longer for the media controls to resume it.
+_BACKGROUND_GRACE_S = 5
+_PAUSED_GRACE_S = 600
 
 
 def _fake(name: str) -> ModuleType:
@@ -65,6 +71,9 @@ class SiphonApp(Adw.Application):
         self._engine_progress: Adw.Toast | None = None
         self.tray: tray.Tray | None = None
         self._tray_lost = 0
+        self._in_background = False  # the window was closed with no tray to go to, while Siphon had work
+        self._idle_quit = 0
+        self._idle_grace: int | None = None
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
@@ -113,6 +122,7 @@ class SiphonApp(Adw.Application):
         self.player.set_repeat(self.prefs.repeat)
         self.player.set_equalizer(self.prefs.equalizer.gains())
         self.player.connect("changed", self._on_player_changed)
+        self.player.connect("changed", self._check_background)
         library = library_module.Library(self.prefs.folder)
         # lookup: playlists label their entries from the library instead of reading tags again.
         self.music = Music(library, lambda folder: playlists_module.Playlists(folder, lookup=library.get),
@@ -143,6 +153,10 @@ class SiphonApp(Adw.Application):
             self._write_settings()
         if self._tray_lost:
             GLib.source_remove(self._tray_lost)
+        if self._idle_quit:
+            GLib.source_remove(self._idle_quit)
+        if self.prefs.told_about_background:
+            self.withdraw_notification("background")
         # an ending Windows session (logoff, shutdown, or an installer closing Siphon) starts no installer
         self.updates.finish(session_ending=self.tray is not None and self.tray.session_ending)
         if self.tray is not None:
@@ -156,6 +170,8 @@ class SiphonApp(Adw.Application):
             self._window.connect("destroy", self._on_window_destroyed)
             self._window.connect("hidden", self._on_window_hidden)
             self._window.connect("close-cancelled", lambda _window: self.updates.cancel_restart())
+            self._window.connect("notify::visible", self._on_window_visible)
+            self._window.downloads.connect("queue-changed", self._check_background)
             # Once, with a window for the news; never for the development stand-in, which would reach GitHub.
             if os.environ.get("SIPHON_FAKE_CORE") != "1":
                 self.updates.start(self.prefs.auto_update, self.prefs.auto_engine)
@@ -173,14 +189,80 @@ class SiphonApp(Adw.Application):
 
     def _on_window_destroyed(self, _window: SiphonWindow) -> None:
         self._window = None
+        self._in_background = False
+        self._check_background()
 
     # -- the tray
 
     def hides_on_close(self) -> bool:
-        """Closing the window leaves Siphon running when that is wanted and a tray shows the icon."""
-        return self.prefs.close_to_tray and self.tray is not None and self.tray.available
+        """Closing the window leaves Siphon running when that is wanted: in the tray when one shows the icon,
+        else in the background while it plays or downloads."""
+        if not self.prefs.close_to_tray:
+            return False
+        if self.tray is not None and self.tray.available:
+            return True
+        return self.runs_in_background() and self._busy()
+
+    def runs_in_background(self) -> bool:
+        """Whether Siphon can keep running with its window closed and no tray: on Linux, where MPRIS's Raise and a
+        second start (both over the session bus) bring the window back."""
+        return not paths.windows() and self.get_dbus_connection() is not None
+
+    def _busy(self) -> bool:
+        return self.player.state == "playing" or (self._window is not None and self._window.downloads.unfinished > 0)
 
     def _on_window_hidden(self, _window: SiphonWindow) -> None:
+        if self.tray is not None and self.tray.available:
+            self._tell_about_tray()
+        else:
+            self._in_background = True
+            self._tell_about_background()
+            self._check_background()
+
+    def _tell_about_background(self) -> None:
+        """The first time the window closes into the background, say so, with a way to quit: once, ever."""
+        if self.prefs.told_about_background:
+            return
+        self.prefs.told_about_background = True
+        self.save_settings()
+        notification = Gio.Notification.new("Siphon keeps playing in the background")
+        notification.set_body("There is no system tray here. Start Siphon again or use the media controls to bring "
+                              "its window back; it quits by itself once the music stops and downloads finish.")
+        notification.set_icon(Gio.ThemedIcon.new(APP_ID))
+        notification.add_button("Quit", "app.quit")
+        self.send_notification("background", notification)
+
+    def _on_window_visible(self, window: SiphonWindow, _pspec) -> None:
+        if window.get_visible():
+            self._in_background = False
+            self.withdraw_notification("background")  # its Quit button was for the hidden Siphon
+            self._check_background()
+
+    def _check_background(self, *_args) -> None:
+        """Hidden in the background with nothing left to do: quit after a grace period, so that nothing lingers
+        unseen. The period restarts when it changes (paused, then stopped) and ends when work or a tray comes."""
+        window = self._window
+        grace = None
+        if (self._in_background and window is not None and not window.get_visible() and not window.quitting
+                and not (self.tray is not None and self.tray.available) and not self._busy()):
+            grace = _PAUSED_GRACE_S if self.player.state == "paused" else _BACKGROUND_GRACE_S
+        if grace == self._idle_grace:
+            return
+        if self._idle_quit:
+            GLib.source_remove(self._idle_quit)
+            self._idle_quit = 0
+        self._idle_grace = grace
+        if grace is not None:
+            self._idle_quit = GLib.timeout_add_seconds(grace, self._on_idle_quit)
+
+    def _on_idle_quit(self) -> bool:
+        self._idle_quit = 0
+        self._idle_grace = None
+        if self._window is not None and self._in_background and not self._window.get_visible() and not self._busy():
+            self._window.quit()
+        return GLib.SOURCE_REMOVE
+
+    def _tell_about_tray(self) -> None:
         """The first time the window closes to the tray, say where Siphon went: once, ever."""
         if self.prefs.told_about_tray:
             return
@@ -237,8 +319,11 @@ class SiphonApp(Adw.Application):
             GLib.source_remove(self._tray_lost)
             self._tray_lost = 0
         window = self._window
-        if not source.available and window is not None and not window.get_visible() and not window.quitting:
+        if source.available:
+            self._in_background = False  # a window hidden in the background is in the tray now
+        elif window is not None and not window.get_visible() and not window.quitting and not self._in_background:
             self._tray_lost = GLib.timeout_add_seconds(_TRAY_GRACE_S, self._on_tray_lost)
+        self._check_background()
 
     def _on_tray_lost(self) -> bool:
         """The tray has been gone a while with the window hidden in it: bring the window back, the only way in."""

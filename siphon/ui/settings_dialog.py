@@ -25,10 +25,14 @@ def status_action(state: str) -> str:
     return _STATUS_ACTIONS.get(state, "check")
 
 
-def tray_line(available: bool) -> str:
-    """The Close to Tray row's subtitle."""
+def tray_line(available: bool, background: bool = False) -> str:
+    """The Close to Tray row's subtitle: a tray shows Siphon's icon, or (background) Linux keeps Siphon running
+    without one while it has work, or closing quits."""
     if available:
         return "Closing the window keeps Siphon playing and downloading in the tray"
+    if background:
+        return ("No system tray here: closing the window keeps Siphon running in the background while it plays "
+                "or downloads, and quits it otherwise")
     return "No system tray was found, so closing the window quits Siphon"
 
 
@@ -82,7 +86,8 @@ def _appearance_page(tray: Gtk.Widget) -> Adw.PreferencesPage:
 
 
 class TrayRow:
-    """Close to Tray (row); insensitive, saying why, while no tray shows Siphon's icon (closing quits then)."""
+    """Close to Tray (row), saying what closing does: into the tray, into the background while Siphon plays or
+    downloads (Linux without a tray), or insensitive where closing can only quit."""
 
     def __init__(self, app: Adw.Application) -> None:
         self.row = Adw.SwitchRow(title="Close to Tray", active=app.prefs.close_to_tray)  # a final class
@@ -100,8 +105,9 @@ class TrayRow:
 
     def _sync(self, *_args) -> None:
         available = self._tray is not None and self._tray.available
-        self.row.set_sensitive(available)
-        self.row.set_subtitle(tray_line(available))
+        background = self._app.runs_in_background()
+        self.row.set_sensitive(available or background)
+        self.row.set_subtitle(tray_line(available, background))
 
     def _on_active(self, row: Adw.SwitchRow, _pspec) -> None:
         self._app.prefs.close_to_tray = row.get_active()
