@@ -433,6 +433,10 @@ def test_other_copydata_is_refused(icon, kind, payload):
     assert icon.backend._handle(wintray.WM_COPYDATA, 0, ctypes.addressof(data)) == 0
 
 
+def test_copydata_without_its_structure_is_refused(icon):
+    assert icon.backend._handle(wintray.WM_COPYDATA, 0, 0) == 0
+
+
 def test_an_empty_command_line_just_shows_the_window(icon):
     data, _buffer = copydata(wintray.COPYDATA_ARGS, b"")
     assert icon.backend._handle(wintray.WM_COPYDATA, 0, ctypes.addressof(data)) == 1

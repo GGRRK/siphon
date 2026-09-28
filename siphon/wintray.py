@@ -406,6 +406,8 @@ class NotifyIcon:
             GLib.idle_add(self._tray.run, command)
 
     def _copydata(self, lparam: int) -> int:
+        if not lparam:  # any program may send WM_COPYDATA; one without its structure must not crash Siphon
+            return 0
         data = COPYDATASTRUCT.from_address(lparam)
         if data.dwData != COPYDATA_ARGS or data.cbData > _MAX_ARGS:
             return 0
