@@ -26,6 +26,7 @@ import json, os, subprocess, sys, threading, time, traceback
 sys.path[:0] = [sys.argv[1], sys.argv[1] + "/tests"]
 from pathlib import Path
 from siphon import app as siphon_app, tray
+from siphon.bus import export
 from siphon.library import Song
 from gi.repository import Gio, GLib
 
@@ -77,7 +78,7 @@ class Notifications:
         self.bus = connect()
         self.calls, self.closed = [], []
         iface = Gio.DBusNodeInfo.new_for_xml(NOTIFICATIONS).interfaces[0]
-        self.bus.register_object("/org/freedesktop/Notifications", iface, self._call, None, None)
+        export(self.bus, "/org/freedesktop/Notifications", iface, self._call, None, None)
         Gio.bus_own_name_on_connection(self.bus, "org.freedesktop.Notifications", Gio.BusNameOwnerFlags.NONE,
                                        None, None)
     def _call(self, _bus, _sender, _path, _iface, method, args, invocation):
