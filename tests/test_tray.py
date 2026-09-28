@@ -165,6 +165,7 @@ def test_argb_reorders_rgba_and_fills_alpha():
     assert sni.argb(rgb) == bytes([255, 1, 2, 3, 255, 4, 5, 6])
 
 
+@pytest.mark.linux  # XDG_DATA_DIRS is a Linux thing; sni never runs on Windows
 def test_the_icon_name_is_used_only_when_the_theme_has_it(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "home"))
     monkeypatch.setenv("XDG_DATA_DIRS", str(tmp_path / "system"))
