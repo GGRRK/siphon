@@ -1,5 +1,5 @@
-"""The Settings dialog's logic that needs no display: the equalizer page's words and lists, the Updates page's lines,
-Close to Tray's subtitle; and the main window's three-dot menu."""
+"""The Settings dialog's logic that needs no display: the equalizer page's words and lists and when a slider is held,
+the Updates page's lines, Close to Tray's subtitle; and the main window's three-dot menu."""
 
 from types import SimpleNamespace
 
@@ -8,6 +8,7 @@ import pytest
 from siphon import eq
 from siphon.ui import equalizer, settings_dialog
 from siphon.ui.window import main_menu
+from gi.repository import Gdk  # noqa: E402  siphon.ui pins the versions first
 
 
 @pytest.mark.parametrize("hz, name", [(31, "31 Hz"), (500, "500 Hz"), (1000, "1 kHz"), (16000, "16 kHz")])
@@ -60,6 +61,30 @@ def test_the_current_preset_is_always_in_the_list():
 ])
 def test_name_problems(name, problem):
     assert equalizer.name_problem(name) == problem
+
+
+class _Controller:
+    """A Gtk.EventControllerLegacy in the middle of handling an event of this kind."""
+
+    def __init__(self, kind: Gdk.EventType) -> None:
+        self._event = SimpleNamespace(get_event_type=lambda: kind)
+
+    def get_current_event(self) -> SimpleNamespace:
+        return self._event
+
+
+def test_a_slider_is_held_from_press_to_release_though_the_signal_hands_over_no_event():
+    """PyGObject hands the "event" signal's GdkEvent over as None (PyGObject 3.56, GTK 4.22): the page reads the event
+    from its controller, so the readout of a slider held still stays up until the release."""
+    hides = []
+    page = SimpleNamespace(_held=None, _hide_later=lambda: hides.append(True))
+    scale = object()
+    for kind, held in ((Gdk.EventType.BUTTON_PRESS, scale), (Gdk.EventType.MOTION_NOTIFY, scale),
+                       (Gdk.EventType.KEY_PRESS, scale), (Gdk.EventType.BUTTON_RELEASE, None),
+                       (Gdk.EventType.TOUCH_BEGIN, scale), (Gdk.EventType.TOUCH_CANCEL, None)):
+        result = equalizer.EqualizerPage._on_scale_event(page, _Controller(kind), None, scale)
+        assert (page._held, result) == (held, Gdk.EVENT_PROPAGATE), kind  # the slider still gets every event
+    assert len(hides) == 2  # a second after each release
 
 
 def _updates(**fields) -> SimpleNamespace:

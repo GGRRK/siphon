@@ -226,8 +226,12 @@ class EqualizerPage(Adw.PreferencesPage):
 
     # -- the readout
 
-    def _on_scale_event(self, _controller: Gtk.EventControllerLegacy, event: Gdk.Event, scale: Gtk.Scale) -> bool:
-        kind = event.get_event_type()
+    def _on_scale_event(self, controller: Gtk.EventControllerLegacy, _event: Gdk.Event | None,
+                        scale: Gtk.Scale) -> bool:
+        # PyGObject hands this signal's event over as None (every press, release, motion and key: PyGObject 3.56,
+        # GTK 4.22, measured 2026-09-28), which left a held slider's readout to go after a second; the controller
+        # gives the same event
+        kind = controller.get_current_event().get_event_type()
         if kind in (Gdk.EventType.BUTTON_PRESS, Gdk.EventType.TOUCH_BEGIN):
             self._held = scale
         elif kind in (Gdk.EventType.BUTTON_RELEASE, Gdk.EventType.TOUCH_END, Gdk.EventType.TOUCH_CANCEL):
