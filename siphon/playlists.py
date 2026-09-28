@@ -137,6 +137,16 @@ class Playlists:
                 old.unlink(missing_ok=True)
             return True
 
+    def remove_cover(self, pl: Playlist) -> None:
+        """pl without a picture: the file loses its #EXTIMG line and the picture Siphon kept for it goes. A picture
+        the file named elsewhere (a user's, another player's) is only no longer named."""
+        with self._lock:
+            own = self._own_cover(pl)
+            pl.cover = None
+            self._save(pl)
+            if own is not None:
+                own.unlink(missing_ok=True)
+
     def remove(self, pl: Playlist, index: int) -> None:
         with self._lock:
             del pl.paths[index]

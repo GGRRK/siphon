@@ -179,6 +179,11 @@ class Playlists:
         pl.cover.write_bytes(data)
         return True
 
+    def remove_cover(self, pl: Playlist) -> None:
+        if pl.cover is not None:
+            pl.cover.unlink(missing_ok=True)
+        pl.cover = None
+
     def remove(self, pl: Playlist, index: int) -> None:
         del pl.paths[index]
 
