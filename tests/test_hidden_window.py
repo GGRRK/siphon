@@ -71,16 +71,23 @@ def display(tmp_path_factory):
         pytest.skip("needs gtk4-broadwayd")
     runtime = tmp_path_factory.mktemp("rt")  # short: the display's socket path must fit in 108 bytes
     runtime.chmod(0o700)
-    number = random.randint(40, 99)
     env = {k: v for k, v in os.environ.items() if k not in ("WAYLAND_DISPLAY", "DISPLAY", "DBUS_SESSION_BUS_ADDRESS")}
-    env |= {"XDG_RUNTIME_DIR": str(runtime), "GDK_BACKEND": "broadway", "BROADWAY_DISPLAY": f":{number}",
-            "GTK_A11Y": "none"}
-    server = subprocess.Popen([broadwayd, f":{number}", "--address", "127.0.0.1", "--port", str(8080 + number)],
-                              env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    try:
+    env |= {"XDG_RUNTIME_DIR": str(runtime), "GDK_BACKEND": "broadway", "GTK_A11Y": "none"}
+    # The socket is private, but the TCP port is not: another broadwayd on it makes this one exit, so try another.
+    for number in random.sample(range(40, 100), 8):
+        env["BROADWAY_DISPLAY"] = f":{number}"
+        server = subprocess.Popen([broadwayd, f":{number}", "--address", "127.0.0.1", "--port", str(8080 + number)],
+                                  env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = time.monotonic() + 10
-        while not list(runtime.glob("broadway*.socket")) and time.monotonic() < deadline:
+        while not list(runtime.glob("broadway*.socket")) and server.poll() is None and time.monotonic() < deadline:
             time.sleep(0.05)
+        if list(runtime.glob("broadway*.socket")):
+            break
+        server.kill()
+        server.wait(10)
+    else:
+        pytest.fail("no gtk4-broadwayd display would start")
+    try:
         yield env
     finally:
         server.terminate()
