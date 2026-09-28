@@ -302,6 +302,7 @@ Check 'the session ending quits Siphon without installing a downloaded update' {
     $log = Join-Path $env:LOCALAPPDATA 'Siphon\siphon.log'
     $setupLog = Join-Path $env:LOCALAPPDATA 'Siphon\update\setup.log'
     Remove-Item $setupLog -ErrorAction SilentlyContinue
+    Remove-Item $log -ErrorAction SilentlyContinue  # an earlier check's 'is ready' line would end the wait below at once
     $env:SIPHON_UPDATE_SOURCE = Write-TestRelease (Join-Path $Out 'release.json')
     try { $app = Start-Process "$installed\Siphon.exe" -PassThru } finally { Remove-Item Env:SIPHON_UPDATE_SOURCE }
     Wait-For { (Test-Path $log) -and (Select-String -Quiet -SimpleMatch 'Siphon 99.0.0 is ready' $log) } 90 "'Siphon 99.0.0 is ready' in siphon.log"
@@ -326,6 +327,7 @@ Check 'a downloaded update installs when Siphon quits' {
     $log = Join-Path $env:LOCALAPPDATA 'Siphon\siphon.log'
     $setupLog = Join-Path $env:LOCALAPPDATA 'Siphon\update\setup.log'
     Remove-Item $setupLog -ErrorAction SilentlyContinue
+    Remove-Item $log -ErrorAction SilentlyContinue  # an earlier check's 'is ready' line would end the wait below at once
     $env:SIPHON_UPDATE_SOURCE = Write-TestRelease (Join-Path $Out 'release.json')
     try { $app = Start-Process "$installed\Siphon.exe" -PassThru } finally { Remove-Item Env:SIPHON_UPDATE_SOURCE }
     Wait-For { (Test-Path $log) -and (Select-String -Quiet -SimpleMatch 'Siphon 99.0.0 is ready' $log) } 90 "'Siphon 99.0.0 is ready' in siphon.log"
