@@ -134,6 +134,7 @@ class FakeApi:
         self.error = 0
         self.windows = {}
         self.reenter = None  # a message the next Shell_NotifyIconW delivers to the window while it waits
+        self.menus_drop_left = False  # SM_MENUDROPALIGNMENT: a left-handed user's setting
 
     def last_error(self):
         return self.error
@@ -175,7 +176,8 @@ class FakeApi:
         return 0
 
     def GetSystemMetrics(self, index):
-        return {wintray.SM_CXSMICON: 16, wintray.SM_CYSMICON: 16, wintray.SM_CXICON: 32, wintray.SM_CYICON: 32}[index]
+        return {wintray.SM_CXSMICON: 16, wintray.SM_CYSMICON: 16, wintray.SM_CXICON: 32, wintray.SM_CYICON: 32,
+                wintray.SM_MENUDROPALIGNMENT: int(self.menus_drop_left)}[index]
 
     def LoadImageW(self, instance, path, kind, cx, cy, flags):
         self.calls.append(("LoadImageW", Path(path).name, cx, flags))
@@ -336,6 +338,14 @@ def test_the_menu_follows_the_player_and_runs_the_choice(icon):
     assert api.calls[track] == ("TrackPopupMenu", wintray.TPM_RIGHTBUTTON | wintray.TPM_RETURNCMD |
                                 wintray.TPM_NONOTIFY, -20, 300)  # the anchor from wParam, signed
     assert api.calls[track + 1] == ("PostMessageW", wintray.WM_NULL) and names[track + 2] == "DestroyMenu"
+
+
+def test_the_menu_drops_to_the_side_the_user_set(icon):
+    icon.api.menus_drop_left = True  # right-aligned to the click, as Windows's own menus then are
+    deliver(icon, wintray.WM_APP + 1, 0, wintray.WM_CONTEXTMENU)
+    pump(lambda: any(c[0] == "TrackPopupMenu" for c in icon.api.calls))
+    track = next(c for c in icon.api.calls if c[0] == "TrackPopupMenu")
+    assert track[1] == wintray.TPM_RIGHTBUTTON | wintray.TPM_RETURNCMD | wintray.TPM_NONOTIFY | wintray.TPM_RIGHTALIGN
 
 
 def test_a_dismissed_menu_runs_nothing(icon):

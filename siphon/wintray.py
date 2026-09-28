@@ -53,9 +53,9 @@ NIF_MESSAGE, NIF_ICON, NIF_TIP, NIF_INFO, NIF_SHOWTIP = 0x01, 0x02, 0x04, 0x10, 
 NOTIFYICON_VERSION_4 = 4
 NIIF_USER, NIIF_LARGE_ICON = 0x04, 0x20
 IMAGE_ICON, LR_LOADFROMFILE = 1, 0x10
-SM_CXICON, SM_CYICON, SM_CXSMICON, SM_CYSMICON = 11, 12, 49, 50
+SM_CXICON, SM_CYICON, SM_MENUDROPALIGNMENT, SM_CXSMICON, SM_CYSMICON = 11, 12, 40, 49, 50
 MF_STRING, MF_GRAYED, MF_SEPARATOR = 0x0, 0x1, 0x800
-TPM_RIGHTBUTTON, TPM_NONOTIFY, TPM_RETURNCMD = 0x2, 0x80, 0x100
+TPM_RIGHTBUTTON, TPM_RIGHTALIGN, TPM_NONOTIFY, TPM_RETURNCMD = 0x2, 0x8, 0x80, 0x100
 WS_EX_TOOLWINDOW = 0x80
 SMTO_ABORTIFHUNG = 0x2
 MSGFLT_ALLOW = 1
@@ -437,7 +437,9 @@ class NotifyIcon:
             # the foreground first, or the menu would stay open after a click elsewhere; WM_NULL after, or a
             # second right click would close it at once (both as the documentation of TrackPopupMenu says)
             api.SetForegroundWindow(self._hwnd)
-            chosen = api.TrackPopupMenu(handle, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY, x, y, 0,
+            # the menu opens to the side the user's handedness setting asks for, as the SDK's notification icon sample
+            align = TPM_RIGHTALIGN if api.GetSystemMetrics(SM_MENUDROPALIGNMENT) else 0
+            chosen = api.TrackPopupMenu(handle, TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY | align, x, y, 0,
                                         self._hwnd, None)
             api.PostMessageW(self._hwnd, WM_NULL, 0, 0)
         finally:
