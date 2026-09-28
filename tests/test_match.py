@@ -94,6 +94,20 @@ def test_alternate_versions_are_penalised(version):
     assert best(alt) is None
 
 
+@pytest.mark.parametrize("wanted", ["Goldrushed (Re-Mastered)", "Goldrushed - Remastered 2009",
+                                    "Goldrushed [2022 Remaster]", "Goldrushed"])
+def test_a_remaster_note_in_the_source_title_does_not_hide_the_song(wanted):
+    upload = c("The Royal Concept - Goldrushed", "Fernet Nero 53", 228)
+    assert choose([upload], wanted, "The Royal Concept", 227.1) is upload
+    remaster = c("The Royal Concept - Goldrushed (Remastered)", "Fernet Nero 53", 228)
+    assert score(remaster, wanted, "The Royal Concept", 227.1) < score(upload, wanted, "The Royal Concept", 227.1)
+
+
+def test_a_title_that_is_only_a_remaster_note_is_still_matched_on():
+    song = c("Band - Remastered", "Band", 200)
+    assert choose([song, c("Band - Other Song", "Band", 200)], "Remastered", "Band", 200) is song
+
+
 def test_version_word_in_the_source_title_is_not_penalised():
     live = c("Song (Live)", "Band", 200, official=True)
     assert choose([live], "Song (Live)", "Band", 200) is live
