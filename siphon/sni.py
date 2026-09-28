@@ -13,6 +13,7 @@ from pathlib import Path
 from gi.repository import Gio, GLib
 
 from . import tray as menus
+from .bus import export
 
 log = logging.getLogger(__name__)
 
@@ -192,10 +193,10 @@ class StatusNotifierItem:
         self._closed = False
         info = Gio.DBusNodeInfo.new_for_xml(_XML)
         try:
-            self._objects.append(bus.register_object(ITEM_PATH, info.lookup_interface(ITEM_IFACE),
-                                                     self._on_item_call, self._on_item_property, None))
-            self._objects.append(bus.register_object(MENU_PATH, info.lookup_interface(MENU_IFACE),
-                                                     self._on_menu_call, self._on_menu_property, None))
+            self._objects.append(export(bus, ITEM_PATH, info.lookup_interface(ITEM_IFACE),
+                                        self._on_item_call, self._on_item_property, None))
+            self._objects.append(export(bus, MENU_PATH, info.lookup_interface(MENU_IFACE),
+                                        self._on_menu_call, self._on_menu_property, None))
         except GLib.Error as exc:
             log.warning("no tray icon: %s", exc.message)
             self.close()

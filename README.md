@@ -77,6 +77,7 @@ When downloads start failing with "YouTube refused the download", run Update Eng
 | `siphon/player.py`, `siphon/eq.py`, `siphon/mpris.py` | playback through libmpv (queue, shuffle, repeat, equalizer) and its MPRIS face |
 | `siphon/app.py`, `siphon/ui/` | the libadwaita window |
 | `siphon/tray.py`, `siphon/sni.py`, `siphon/wintray.py` | the tray icon and its menu: a StatusNotifierItem with dbusmenu on Linux, the notification area (and one Siphon per session) on Windows |
+| `siphon/bus.py` | publishing MPRIS and the tray icon on the session bus |
 | `siphon/paths.py`, `siphon/names.py` | per-platform folders and start-up (a packaged build's `bin/`), Windows file-name rules |
 | `siphon/engine.py` | engine updates: verified yt-dlp wheels from PyPI, used from the next start |
 | `siphon/updater.py`, `siphon/ui/updates.py` | Siphon's own updates from its GitHub releases (installer, portable zip, git clone), and their state for the window |

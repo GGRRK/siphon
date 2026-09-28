@@ -4,6 +4,7 @@ import logging
 
 from gi.repository import Gio, GLib
 
+from .bus import export
 from .covers import cover_file
 from .library import Song
 from .player import Player
@@ -94,8 +95,8 @@ class Mpris:
         try:
             self._bus = Gio.bus_get_sync(Gio.BusType.SESSION)
             for iface in Gio.DBusNodeInfo.new_for_xml(_XML).interfaces:
-                self._objects.append(self._bus.register_object(
-                    PATH, iface, self._on_call, self._on_get_property, self._on_set_property))
+                self._objects.append(export(self._bus, PATH, iface, self._on_call, self._on_get_property,
+                                            self._on_set_property))
         except GLib.Error as exc:
             log.warning("media keys are off: no MPRIS on the session bus (%s)", exc.message)
             self._unregister()

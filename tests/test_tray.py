@@ -12,6 +12,7 @@ import pytest
 from gi.repository import Gio, GLib, GObject
 
 from siphon import sni, tray
+from siphon.bus import export
 
 pytestmark = pytest.mark.filterwarnings("ignore::DeprecationWarning:gi.events")  # MainContext.iteration()
 
@@ -205,7 +206,7 @@ class Watcher:
         self.bus = connect(address)
         self.hosted, self.items, self.asked = hosted, [], []
         iface = Gio.DBusNodeInfo.new_for_xml(WATCHER_XML).interfaces[0]
-        self._object = self.bus.register_object(sni.WATCHER_PATH, iface, self._call, self._get, None)
+        self._object = export(self.bus, sni.WATCHER_PATH, iface, self._call, self._get, None)
         self._owner = Gio.bus_own_name_on_connection(self.bus, sni.WATCHER, Gio.BusNameOwnerFlags.NONE, None, None)
 
     def _call(self, _bus, sender, _path, _iface, method, args, invocation):
