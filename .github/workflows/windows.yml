@@ -46,8 +46,10 @@ jobs:
           curl -fsSL -o build/tools/qjs.exe "https://github.com/quickjs-ng/quickjs/releases/download/$QJS_VERSION/qjs-windows-x86_64.exe"
           echo "$QJS_SHA256  build/tools/qjs.exe" | sha256sum -c -
           echo "VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' siphon/__init__.py)" >> "$GITHUB_ENV"
-          # The audio stack is rebuilt when its script or a library it links to changes.
-          libs=$(pacman -Q mingw-w64-ucrt-x86_64-{libass,lua51,opus,lame,libvorbis,zlib,gcc-libs} | sha256sum | cut -c1-12)
+          # The audio stack is rebuilt when its script or a library it links to changes. The GCC runtime is found by
+          # its DLLs: MSYS2 split gcc-libs into libgcc, libstdc++ and others, and may rename them again.
+          gccrt=$(pacman -Qqo /ucrt64/bin/libgcc_s_seh-1.dll /ucrt64/bin/libstdc++-6.dll | sort -u)
+          libs=$(pacman -Q mingw-w64-ucrt-x86_64-{libass,lua51,opus,lame,libvorbis,zlib} $gccrt | sha256sum | cut -c1-12)
           echo "AV_KEY=av-$(sha256sum packaging/windows/build-av.sh | cut -c1-12)-$libs" >> "$GITHUB_ENV"
 
       - uses: actions/cache/restore@v6
