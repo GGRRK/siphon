@@ -2,7 +2,7 @@
 
 Paste a link, get the audio - then listen to it: a library of your music folder, playlists and a built-in player. A small GTK4/libadwaita app for Arch + Hyprland (works on any GNOME-ish Linux desktop) and for Windows 10/11.
 
-- **YouTube, YouTube Music, SoundCloud** and anything else [yt-dlp](https://github.com/yt-dlp/yt-dlp) reads: the audio track is downloaded directly.
+- **YouTube, YouTube Music, SoundCloud** and anything else [yt-dlp](https://github.com/yt-dlp/yt-dlp) reads: the audio track is downloaded directly. A SoundCloud song locked with DRM (many label releases are) is found on YouTube the way a Spotify song is, and keeps SoundCloud's tags and cover; a song SoundCloud only previews (SoundCloud Go+) is refused rather than saved as its 30-second clip.
 - **Spotify tracks, albums and playlists**: Spotify's own audio is DRM-protected, so Siphon reads the song details from the link (title, artist, album, cover) and downloads the same song from YouTube Music / YouTube, rejecting remixes, live versions, covers and wrong lengths. Files get Spotify's tags and cover.
 - **Apple Music, Deezer, Tidal share links**: same idea, from the page's title tags.
 
