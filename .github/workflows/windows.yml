@@ -97,6 +97,7 @@ jobs:
           python -c "import json, pathlib; d = pathlib.Path('build/engine'); (d / 'engine.json').write_text(json.dumps({'version': '2099.1.1', 'wheels': sorted(p.name for p in d.glob('*.whl'))}))"
 
       - name: Portable zip and installer
+        id: pack
         shell: pwsh
         run: |
           $zip = "build\Siphon-$env:VERSION-Windows-portable.zip"
@@ -127,6 +128,7 @@ jobs:
         run: if (Test-Path "$env:RUNNER_TEMP\msys64-away") { Rename-Item "$env:RUNNER_TEMP\msys64-away" msys64 }
 
       - uses: actions/upload-artifact@v7
+        if: always() && steps.pack.outcome == 'success'  # also when a smoke check fails: the log shows whether it is only YouTube's bot wall
         with:
           name: Siphon-${{ env.VERSION }}-Setup
           path: build/Siphon-${{ env.VERSION }}-Setup.exe
@@ -134,6 +136,7 @@ jobs:
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v7
+        if: always() && steps.pack.outcome == 'success'
         with:
           name: Siphon-${{ env.VERSION }}-Windows-portable
           path: build/Siphon-${{ env.VERSION }}-Windows-portable.zip
